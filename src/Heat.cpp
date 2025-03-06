@@ -1,10 +1,16 @@
 #include "Heat.hpp"
 
+// x0 definition
+const Point<Heat::dim> Heat::x0 = Point<Heat::dim>(0.5, 0.5, 0.5);
+
 void
 Heat::setup()
 {
   // Create the mesh.
   {
+
+
+
     pcout << "Initializing the mesh" << std::endl;
 
     Triangulation<dim> mesh_serial;

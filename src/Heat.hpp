@@ -45,20 +45,51 @@ public:
     value(const Point<dim> & /*p*/,
           const unsigned int /*component*/ = 0) const override
     {
-      return 0.1;
+      return 1.0;
     }
   };
 
-  // Function for the forcing term.
-  class ForcingTerm : public Function<dim>
-  {
+  // TODO: make these selections on main
+  static constexpr double a = 1.0;
+  static constexpr double N = 1.0; 
+  static constexpr double sigma = 0.1; 
+  static const Point<dim> x0; // initialized in Heat.cpp
+
+  // Function for g(t)
+  class GFunction : public Function<dim> {
   public:
-    virtual double
-    value(const Point<dim> & /*p*/,
-          const unsigned int /*component*/ = 0) const override
-    {
-      return 0.0;
-    }
+      virtual double 
+      value(const Point<dim> & /*p*/, 
+            const unsigned int /*component*/= 0) const override 
+      {
+          const double t = this->get_time();
+          return std::exp(-a * std::cos(2 * N * M_PI * t)) / std::exp(a);
+      }
+  };
+
+  // Function for h(x)
+  class HFunction : public Function<dim> {
+  public:
+      virtual double 
+      value(const Point<dim> &p, 
+            const unsigned int /*component*/= 0) const override 
+      {
+        return std::exp(-((p - x0).norm_square()) / (sigma * sigma));
+      }
+  };
+
+  // Function for the forcing term f(x, t) = g(t) * h(x)
+  class ForcingTerm : public Function<dim> {
+  public:
+      GFunction g;
+      HFunction h;
+
+      virtual double 
+      value(const Point<dim> &p, 
+            const unsigned int /*component*/= 0) const override 
+      {
+        return g.value(p) * h.value(p);
+      }
   };
 
   // Function for the initial condition.
@@ -66,10 +97,10 @@ public:
   {
   public:
     virtual double
-    value(const Point<dim> &p,
+    value(const Point<dim> &/*p*/,
           const unsigned int /*component*/ = 0) const override
     {
-      return p[0] * (1.0 - p[0]) * p[1] * (1.0 - p[1]) * p[2] * (1.0 - p[2]);
+      return 0.0;
     }
   };
 
