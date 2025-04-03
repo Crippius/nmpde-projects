@@ -4,30 +4,32 @@
 const Point<Heat::dim> Heat::x0 = Point<Heat::dim>(0.5, 0.5, 0.5);
 
 void
+Heat::create_mesh()
+{
+  pcout << "Creating cube mesh" << std::endl;
+  
+  Triangulation<dim> mesh_serial;
+
+  GridGenerator::hyper_cube(mesh_serial, 0.0, 1.0);
+  
+  mesh_serial.refine_global(n_refinements);
+  
+  GridTools::partition_triangulation(mpi_size, mesh_serial);
+  const auto construction_data = TriangulationDescription::Utilities::
+    create_description_from_triangulation(mesh_serial, MPI_COMM_WORLD);
+  mesh.create_triangulation(construction_data);
+  
+  pcout << "  Number of elements = " << mesh.n_global_active_cells()
+        << std::endl;
+}
+
+void
 Heat::setup()
 {
   // Create the mesh.
   {
-
-
-
     pcout << "Initializing the mesh" << std::endl;
-
-    Triangulation<dim> mesh_serial;
-
-    GridIn<dim> grid_in;
-    grid_in.attach_triangulation(mesh_serial);
-
-    std::ifstream grid_in_file(mesh_file_name);
-    grid_in.read_msh(grid_in_file);
-
-    GridTools::partition_triangulation(mpi_size, mesh_serial);
-    const auto construction_data = TriangulationDescription::Utilities::
-      create_description_from_triangulation(mesh_serial, MPI_COMM_WORLD);
-    mesh.create_triangulation(construction_data);
-
-    pcout << "  Number of elements = " << mesh.n_global_active_cells()
-          << std::endl;
+    create_mesh();
   }
 
   pcout << "-----------------------------------------------" << std::endl;
@@ -36,13 +38,13 @@ Heat::setup()
   {
     pcout << "Initializing the finite element space" << std::endl;
 
-    fe = std::make_unique<FE_SimplexP<dim>>(r);
+    fe = std::make_unique<FE_Q<dim>>(r);
 
     pcout << "  Degree                     = " << fe->degree << std::endl;
     pcout << "  DoFs per cell              = " << fe->dofs_per_cell
           << std::endl;
 
-    quadrature = std::make_unique<QGaussSimplex<dim>>(r + 1);
+    quadrature = std::make_unique<QGauss<dim>>(r + 1);
 
     pcout << "  Quadrature points per cell = " << quadrature->size()
           << std::endl;
@@ -62,6 +64,9 @@ Heat::setup()
 
     pcout << "  Number of DoFs = " << dof_handler.n_dofs() << std::endl;
   }
+
+  // Set up constraints for hanging nodes
+  setup_constraints();
 
   pcout << "-----------------------------------------------" << std::endl;
 
@@ -144,8 +149,14 @@ Heat::assemble_matrices()
 
       cell->get_dof_indices(dof_indices);
 
-      mass_matrix.add(dof_indices, cell_mass_matrix);
-      stiffness_matrix.add(dof_indices, cell_stiffness_matrix);
+      // Apply constraints while assembling
+      constraints.distribute_local_to_global(cell_mass_matrix, 
+                                            dof_indices, 
+                                            mass_matrix);
+                                            
+      constraints.distribute_local_to_global(cell_stiffness_matrix, 
+                                           dof_indices, 
+                                           stiffness_matrix);
     }
 
   mass_matrix.compress(VectorOperation::add);
@@ -212,7 +223,8 @@ Heat::assemble_rhs(const double &time)
         }
 
       cell->get_dof_indices(dof_indices);
-      system_rhs.add(dof_indices, cell_rhs);
+      // Apply constraints while assembling
+      constraints.distribute_local_to_global(cell_rhs, dof_indices, system_rhs);
     }
 
   system_rhs.compress(VectorOperation::add);
@@ -232,6 +244,10 @@ Heat::solve_time_step()
     lhs_matrix, TrilinosWrappers::PreconditionSSOR::AdditionalData(1.0));
 
   solver.solve(lhs_matrix, solution_owned, system_rhs, preconditioner);
+  
+  // Apply constraints
+  constraints.distribute(solution_owned);
+  
   pcout << "  " << solver_control.last_step() << " CG iterations" << std::endl;
 
   solution = solution_owned;
@@ -241,7 +257,8 @@ void
 Heat::output(const unsigned int &time_step) const
 {
   DataOut<dim> data_out;
-  data_out.add_data_vector(dof_handler, solution, "u");
+  data_out.attach_dof_handler(dof_handler);
+  data_out.add_data_vector(solution, "u");
 
   std::vector<unsigned int> partition_int(mesh.n_active_cells());
   GridTools::get_subdomain_association(mesh, partition_int);
@@ -288,4 +305,15 @@ Heat::solve()
       solve_time_step();
       output(time_step);
     }
+}
+
+void
+Heat::setup_constraints()
+{
+  pcout << "Setting up constraints" << std::endl;
+  
+  constraints.clear();
+  constraints.reinit(locally_relevant_dofs);
+  DoFTools::make_hanging_node_constraints(dof_handler, constraints);
+  constraints.close();
 }

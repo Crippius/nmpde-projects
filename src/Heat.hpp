@@ -8,22 +8,29 @@
 
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/dofs/dof_tools.h>
+#include <deal.II/numerics/solution_transfer.h>
 
-#include <deal.II/fe/fe_simplex_p.h>
+#include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/fe_values_extractors.h>
 
 #include <deal.II/grid/grid_in.h>
 #include <deal.II/grid/grid_tools.h>
+#include <deal.II/grid/grid_refinement.h>
+#include <deal.II/grid/grid_generator.h>
 
 #include <deal.II/lac/solver_cg.h>
 #include <deal.II/lac/trilinos_precondition.h>
 #include <deal.II/lac/trilinos_sparse_matrix.h>
+#include <deal.II/lac/affine_constraints.h>
+#include <deal.II/lac/la_parallel_vector.h>
 
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/matrix_tools.h>
 #include <deal.II/numerics/vector_tools.h>
+#include <deal.II/numerics/error_estimator.h>
+#include <deal.II/numerics/vector_tools_interpolate.h>
 
 #include <fstream>
 #include <iostream>
@@ -81,15 +88,20 @@ public:
   // Function for the forcing term f(x, t) = g(t) * h(x)
   class ForcingTerm : public Function<dim> {
   public:
-      GFunction g;
-      HFunction h;
-
+      ForcingTerm() : Function<dim>() {}
+      
       virtual double 
       value(const Point<dim> &p, 
             const unsigned int /*component*/= 0) const override 
       {
-        return g.value(p) * h.value(p);
+        // Use the time that was set for this function to set the time for g
+        g.set_time(this->get_time());
+        return g.value(Point<dim>()) * h.value(p);
       }
+      
+  private:
+      mutable GFunction g;
+      HFunction h;
   };
 
   // Function for the initial condition.
@@ -106,19 +118,19 @@ public:
 
   // Constructor. We provide the final time, time step Delta t and theta method
   // parameter as constructor arguments.
-  Heat(const std::string  &mesh_file_name_,
-       const unsigned int &r_,
+  Heat(const unsigned int &r_,
        const double       &T_,
        const double       &deltat_,
-       const double       &theta_)
+       const double       &theta_,
+       const unsigned int &n_refinements_ = 3)
     : mpi_size(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD))
     , mpi_rank(Utilities::MPI::this_mpi_process(MPI_COMM_WORLD))
     , pcout(std::cout, mpi_rank == 0)
     , T(T_)
-    , mesh_file_name(mesh_file_name_)
     , r(r_)
     , deltat(deltat_)
     , theta(theta_)
+    , n_refinements(n_refinements_)
     , mesh(MPI_COMM_WORLD)
   {}
 
@@ -131,6 +143,10 @@ public:
   solve();
 
 protected:
+  // Create the cube mesh
+  void
+  create_mesh();
+
   // Assemble the mass and stiffness matrices.
   void
   assemble_matrices();
@@ -143,9 +159,16 @@ protected:
   void
   solve_time_step();
 
+  // Refine the grid based on solution error estimation.
+  void
+  refine_grid();
+
   // Output.
   void
   output(const unsigned int &time_step) const;
+  
+  // Setup for constraints (needed for hanging nodes in adaptive refinement)
+  void setup_constraints();
 
   // MPI parallel. /////////////////////////////////////////////////////////////
 
@@ -174,9 +197,6 @@ protected:
 
   // Discretization. ///////////////////////////////////////////////////////////
 
-  // Mesh file name.
-  const std::string mesh_file_name;
-
   // Polynomial degree.
   const unsigned int r;
 
@@ -185,6 +205,9 @@ protected:
 
   // Theta parameter of the theta method.
   const double theta;
+
+  // Number of global refinements
+  const unsigned int n_refinements;
 
   // Mesh.
   parallel::fullydistributed::Triangulation<dim> mesh;
@@ -203,6 +226,9 @@ protected:
 
   // DoFs relevant to the current process (including ghost DoFs).
   IndexSet locally_relevant_dofs;
+  
+  // Constraints for hanging nodes in adaptive refinement
+  AffineConstraints<double> constraints;
 
   // Mass matrix M / deltat.
   TrilinosWrappers::SparseMatrix mass_matrix;
