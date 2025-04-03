@@ -1,3 +1,7 @@
+### Materiali utili 
+Adaptive space: https://www.dealii.org/current/doxygen/deal.II/step_6.html
+Adaptive time: https://www.sciencedirect.com/science/article/pii/S0045782598001212 
+
 ### Organizing the source code
 Please place all your sources into the `src` folder.
 
