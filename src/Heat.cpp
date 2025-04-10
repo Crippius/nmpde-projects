@@ -240,6 +240,81 @@ Heat::output(const unsigned int &time_step) const
 }
 
 void
+Heat::refine_grid()
+{
+  std::cout << "Refining grid based on error estimation" << std::endl;
+  std::cout << "  Number of active cells before refinement: " 
+            << mesh.n_active_cells() << std::endl;
+  
+  // Calculate error estimations for each cell
+  Vector<float> estimated_error_per_cell(mesh.n_active_cells());
+  
+  // Use Kelly Error Estimator with the current solution
+  KellyErrorEstimator<dim>::estimate(dof_handler,
+                                    QGauss<dim - 1>(r + 1),
+                                    {},  // No boundary function map needed
+                                    solution,
+                                    estimated_error_per_cell);
+  
+  // Mark cells for refinement and coarsening
+  GridRefinement::refine_and_coarsen_fixed_number(mesh,
+                                                 estimated_error_per_cell,
+                                                 0.3,  // Top 30% for refinement
+                                                 0.03); // Bottom 3% for coarsening
+  
+  // Create SolutionTransfer object for transferring the solution
+  SolutionTransfer<dim> solution_transfer(dof_handler);
+  
+  // Flag cells for refinement
+  mesh.prepare_coarsening_and_refinement();
+  
+  // Prepare the solution transfer
+  solution_transfer.prepare_for_coarsening_and_refinement(solution);
+  
+  // Actually refine the mesh
+  mesh.execute_coarsening_and_refinement();
+  
+  std::cout << "  Number of active cells after refinement: " 
+            << mesh.n_active_cells() << std::endl;
+  
+  // Reinitialize the DoF handler for the new mesh
+  dof_handler.distribute_dofs(*fe);
+  std::cout << "  Number of DoFs after refinement = " << dof_handler.n_dofs() << std::endl;
+  
+  // Set up the constraints for the new mesh
+  setup_constraints();
+  
+  // Reinitialize the linear system for the new mesh
+  DynamicSparsityPattern dsp(dof_handler.n_dofs());
+  DoFTools::make_sparsity_pattern(dof_handler, dsp, constraints);
+  sparsity_pattern.copy_from(dsp);
+  
+  // Reinitialize matrices
+  mass_matrix.reinit(sparsity_pattern);
+  stiffness_matrix.reinit(sparsity_pattern);
+  lhs_matrix.reinit(sparsity_pattern);
+  rhs_matrix.reinit(sparsity_pattern);
+  
+  // Reinitialize system vectors for the new mesh size
+  Vector<double> new_solution(dof_handler.n_dofs());
+  system_rhs.reinit(dof_handler.n_dofs());
+  
+  // Interpolate the old solution to the new mesh
+  solution_transfer.interpolate(solution, new_solution);
+  
+  // Assign the interpolated solution to the solution vector
+  solution.reinit(dof_handler.n_dofs());
+  solution = new_solution;
+  
+  // Apply constraints to the transferred solution
+  constraints.distribute(solution);
+  
+  // Reassemble the matrices with the new mesh
+  std::cout << "  Reassembling matrices for the refined mesh" << std::endl;
+  assemble_matrices();
+}
+
+void
 Heat::solve()
 {
   assemble_matrices();
@@ -259,6 +334,9 @@ Heat::solve()
 
   unsigned int time_step = 0;
   double       time      = 0;
+  
+  // Refinement interval - adapt every 5 time steps
+  const unsigned int refinement_interval = 5;
 
   while (time < T)
     {
@@ -268,7 +346,20 @@ Heat::solve()
       std::cout << "n = " << std::setw(3) << time_step << ", t = " << std::setw(5)
             << time << ":" << std::flush;
 
-      assemble_rhs(time);
+      // Perform mesh refinement at regular intervals
+      if (time_step % refinement_interval == 0)
+      {
+        std::cout << std::endl << "Performing adaptive mesh refinement" << std::endl;
+        refine_grid();
+        // After refinement, we need to reassemble the RHS with the new mesh
+        assemble_rhs(time);
+      }
+      else
+      {
+        // Regular time step without refinement
+        assemble_rhs(time);
+      }
+      
       solve_time_step();
       output(time_step);
     }

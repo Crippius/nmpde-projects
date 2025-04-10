@@ -27,6 +27,7 @@
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/error_estimator.h>
 #include <deal.II/numerics/vector_tools_interpolate.h>
+#include <deal.II/numerics/solution_transfer.h>
 
 #include <fstream>
 #include <iostream>
@@ -90,7 +91,6 @@ public:
       value(const Point<dim> &p, 
             const unsigned int /*component*/= 0) const override 
       {
-        // Use the time that was set for this function to set the time for g
         g.set_time(this->get_time());
         return g.value(Point<dim>()) * h.value(p);
       }
@@ -112,8 +112,6 @@ public:
     }
   };
 
-  // Constructor. We provide the final time, time step Delta t and theta method
-  // parameter as constructor arguments.
   Heat(const unsigned int &r_,
        const double       &T_,
        const double       &deltat_,
