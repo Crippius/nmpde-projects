@@ -6,20 +6,12 @@ const Point<Heat::dim> Heat::x0 = Point<Heat::dim>(0.5, 0.5, 0.5);
 void
 Heat::create_mesh()
 {
-  pcout << "Creating cube mesh" << std::endl;
+  std::cout << "Creating cube mesh" << std::endl;
   
-  Triangulation<dim> mesh_serial;
-
-  GridGenerator::hyper_cube(mesh_serial, 0.0, 1.0);
+  GridGenerator::hyper_cube(mesh, 0.0, 1.0);
+  mesh.refine_global(n_refinements);
   
-  mesh_serial.refine_global(n_refinements);
-  
-  GridTools::partition_triangulation(mpi_size, mesh_serial);
-  const auto construction_data = TriangulationDescription::Utilities::
-    create_description_from_triangulation(mesh_serial, MPI_COMM_WORLD);
-  mesh.create_triangulation(construction_data);
-  
-  pcout << "  Number of elements = " << mesh.n_global_active_cells()
+  std::cout << "  Number of elements = " << mesh.n_active_cells()
         << std::endl;
 }
 
@@ -28,78 +20,73 @@ Heat::setup()
 {
   // Create the mesh.
   {
-    pcout << "Initializing the mesh" << std::endl;
+    std::cout << "Initializing the mesh" << std::endl;
     create_mesh();
   }
 
-  pcout << "-----------------------------------------------" << std::endl;
+  std::cout << "-----------------------------------------------" << std::endl;
 
   // Initialize the finite element space.
   {
-    pcout << "Initializing the finite element space" << std::endl;
+    std::cout << "Initializing the finite element space" << std::endl;
 
     fe = std::make_unique<FE_Q<dim>>(r);
 
-    pcout << "  Degree                     = " << fe->degree << std::endl;
-    pcout << "  DoFs per cell              = " << fe->dofs_per_cell
+    std::cout << "  Degree                     = " << fe->degree << std::endl;
+    std::cout << "  DoFs per cell              = " << fe->dofs_per_cell
           << std::endl;
 
     quadrature = std::make_unique<QGauss<dim>>(r + 1);
 
-    pcout << "  Quadrature points per cell = " << quadrature->size()
+    std::cout << "  Quadrature points per cell = " << quadrature->size()
           << std::endl;
   }
 
-  pcout << "-----------------------------------------------" << std::endl;
+  std::cout << "-----------------------------------------------" << std::endl;
 
   // Initialize the DoF handler.
   {
-    pcout << "Initializing the DoF handler" << std::endl;
+    std::cout << "Initializing the DoF handler" << std::endl;
 
     dof_handler.reinit(mesh);
     dof_handler.distribute_dofs(*fe);
 
-    locally_owned_dofs = dof_handler.locally_owned_dofs();
-    DoFTools::extract_locally_relevant_dofs(dof_handler, locally_relevant_dofs);
-
-    pcout << "  Number of DoFs = " << dof_handler.n_dofs() << std::endl;
+    std::cout << "  Number of DoFs = " << dof_handler.n_dofs() << std::endl;
   }
 
   // Set up constraints for hanging nodes
   setup_constraints();
 
-  pcout << "-----------------------------------------------" << std::endl;
+  std::cout << "-----------------------------------------------" << std::endl;
 
   // Initialize the linear system.
   {
-    pcout << "Initializing the linear system" << std::endl;
+    std::cout << "Initializing the linear system" << std::endl;
 
-    pcout << "  Initializing the sparsity pattern" << std::endl;
+    std::cout << "  Initializing the sparsity pattern" << std::endl;
 
-    TrilinosWrappers::SparsityPattern sparsity(locally_owned_dofs,
-                                               MPI_COMM_WORLD);
-    DoFTools::make_sparsity_pattern(dof_handler, sparsity);
-    sparsity.compress();
+    DynamicSparsityPattern dsp(dof_handler.n_dofs());
+    DoFTools::make_sparsity_pattern(dof_handler, dsp, constraints);
+    sparsity_pattern.copy_from(dsp);
 
-    pcout << "  Initializing the matrices" << std::endl;
-    mass_matrix.reinit(sparsity);
-    stiffness_matrix.reinit(sparsity);
-    lhs_matrix.reinit(sparsity);
-    rhs_matrix.reinit(sparsity);
+    std::cout << "  Initializing the matrices" << std::endl;
+    mass_matrix.reinit(sparsity_pattern);
+    stiffness_matrix.reinit(sparsity_pattern);
+    lhs_matrix.reinit(sparsity_pattern);
+    rhs_matrix.reinit(sparsity_pattern);
 
-    pcout << "  Initializing the system right-hand side" << std::endl;
-    system_rhs.reinit(locally_owned_dofs, MPI_COMM_WORLD);
-    pcout << "  Initializing the solution vector" << std::endl;
-    solution_owned.reinit(locally_owned_dofs, MPI_COMM_WORLD);
-    solution.reinit(locally_owned_dofs, locally_relevant_dofs, MPI_COMM_WORLD);
+    std::cout << "  Initializing the system right-hand side" << std::endl;
+    system_rhs.reinit(dof_handler.n_dofs());
+    std::cout << "  Initializing the solution vector" << std::endl;
+    solution.reinit(dof_handler.n_dofs());
   }
 }
 
 void
 Heat::assemble_matrices()
 {
-  pcout << "===============================================" << std::endl;
-  pcout << "Assembling the system matrices" << std::endl;
+  std::cout << "===============================================" << std::endl;
+  std::cout << "Assembling the system matrices" << std::endl;
 
   const unsigned int dofs_per_cell = fe->dofs_per_cell;
   const unsigned int n_q           = quadrature->size();
@@ -119,9 +106,6 @@ Heat::assemble_matrices()
 
   for (const auto &cell : dof_handler.active_cell_iterators())
     {
-      if (!cell->is_locally_owned())
-        continue;
-
       fe_values.reinit(cell);
 
       cell_mass_matrix      = 0.0;
@@ -159,9 +143,6 @@ Heat::assemble_matrices()
                                            stiffness_matrix);
     }
 
-  mass_matrix.compress(VectorOperation::add);
-  stiffness_matrix.compress(VectorOperation::add);
-
   // We build the matrix on the left-hand side of the algebraic problem (the one
   // that we'll invert at each timestep).
   lhs_matrix.copy_from(mass_matrix);
@@ -192,9 +173,6 @@ Heat::assemble_rhs(const double &time)
 
   for (const auto &cell : dof_handler.active_cell_iterators())
     {
-      if (!cell->is_locally_owned())
-        continue;
-
       fe_values.reinit(cell);
 
       cell_rhs = 0.0;
@@ -227,10 +205,8 @@ Heat::assemble_rhs(const double &time)
       constraints.distribute_local_to_global(cell_rhs, dof_indices, system_rhs);
     }
 
-  system_rhs.compress(VectorOperation::add);
-
   // Add the term that comes from the old solution.
-  rhs_matrix.vmult_add(system_rhs, solution_owned);
+  rhs_matrix.vmult_add(system_rhs, solution);
 }
 
 void
@@ -238,19 +214,16 @@ Heat::solve_time_step()
 {
   SolverControl solver_control(1000, 1e-6 * system_rhs.l2_norm());
 
-  SolverCG<TrilinosWrappers::MPI::Vector> solver(solver_control);
-  TrilinosWrappers::PreconditionSSOR      preconditioner;
-  preconditioner.initialize(
-    lhs_matrix, TrilinosWrappers::PreconditionSSOR::AdditionalData(1.0));
+  SolverCG<Vector<double>> solver(solver_control);
+  PreconditionSSOR<SparseMatrix<double>> preconditioner;
+  preconditioner.initialize(lhs_matrix, 1.0);
 
-  solver.solve(lhs_matrix, solution_owned, system_rhs, preconditioner);
+  solver.solve(lhs_matrix, solution, system_rhs, preconditioner);
   
   // Apply constraints
-  constraints.distribute(solution_owned);
+  constraints.distribute(solution);
   
-  pcout << "  " << solver_control.last_step() << " CG iterations" << std::endl;
-
-  solution = solution_owned;
+  std::cout << "  " << solver_control.last_step() << " CG iterations" << std::endl;
 }
 
 void
@@ -260,15 +233,10 @@ Heat::output(const unsigned int &time_step) const
   data_out.attach_dof_handler(dof_handler);
   data_out.add_data_vector(solution, "u");
 
-  std::vector<unsigned int> partition_int(mesh.n_active_cells());
-  GridTools::get_subdomain_association(mesh, partition_int);
-  const Vector<double> partitioning(partition_int.begin(), partition_int.end());
-  data_out.add_data_vector(partitioning, "partitioning");
-
   data_out.build_patches();
 
-  data_out.write_vtu_with_pvtu_record(
-    "./", "output", time_step, MPI_COMM_WORLD, 3);
+  std::ofstream output("output_" + std::to_string(time_step) + ".vtu");
+  data_out.write_vtu(output);
 }
 
 void
@@ -276,18 +244,17 @@ Heat::solve()
 {
   assemble_matrices();
 
-  pcout << "===============================================" << std::endl;
+  std::cout << "===============================================" << std::endl;
 
   // Apply the initial condition.
   {
-    pcout << "Applying the initial condition" << std::endl;
+    std::cout << "Applying the initial condition" << std::endl;
 
-    VectorTools::interpolate(dof_handler, u_0, solution_owned);
-    solution = solution_owned;
+    VectorTools::interpolate(dof_handler, u_0, solution);
 
     // Output the initial solution.
     output(0);
-    pcout << "-----------------------------------------------" << std::endl;
+    std::cout << "-----------------------------------------------" << std::endl;
   }
 
   unsigned int time_step = 0;
@@ -298,7 +265,7 @@ Heat::solve()
       time += deltat;
       ++time_step;
 
-      pcout << "n = " << std::setw(3) << time_step << ", t = " << std::setw(5)
+      std::cout << "n = " << std::setw(3) << time_step << ", t = " << std::setw(5)
             << time << ":" << std::flush;
 
       assemble_rhs(time);
@@ -310,10 +277,9 @@ Heat::solve()
 void
 Heat::setup_constraints()
 {
-  pcout << "Setting up constraints" << std::endl;
+  std::cout << "Setting up constraints" << std::endl;
   
   constraints.clear();
-  constraints.reinit(locally_relevant_dofs);
   DoFTools::make_hanging_node_constraints(dof_handler, constraints);
   constraints.close();
 }

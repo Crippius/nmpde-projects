@@ -1,14 +1,10 @@
 #ifndef HEAT_HPP
 #define HEAT_HPP
 
-#include <deal.II/base/conditional_ostream.h>
 #include <deal.II/base/quadrature_lib.h>
-
-#include <deal.II/distributed/fully_distributed_tria.h>
 
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/dofs/dof_tools.h>
-#include <deal.II/numerics/solution_transfer.h>
 
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_system.h>
@@ -21,10 +17,10 @@
 #include <deal.II/grid/grid_generator.h>
 
 #include <deal.II/lac/solver_cg.h>
-#include <deal.II/lac/trilinos_precondition.h>
-#include <deal.II/lac/trilinos_sparse_matrix.h>
+#include <deal.II/lac/precondition.h>
+#include <deal.II/lac/sparse_matrix.h>
 #include <deal.II/lac/affine_constraints.h>
-#include <deal.II/lac/la_parallel_vector.h>
+#include <deal.II/lac/vector.h>
 
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/matrix_tools.h>
@@ -123,15 +119,11 @@ public:
        const double       &deltat_,
        const double       &theta_,
        const unsigned int &n_refinements_ = 3)
-    : mpi_size(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD))
-    , mpi_rank(Utilities::MPI::this_mpi_process(MPI_COMM_WORLD))
-    , pcout(std::cout, mpi_rank == 0)
-    , T(T_)
+    : T(T_)
     , r(r_)
     , deltat(deltat_)
     , theta(theta_)
     , n_refinements(n_refinements_)
-    , mesh(MPI_COMM_WORLD)
   {}
 
   // Initialization.
@@ -170,17 +162,6 @@ protected:
   // Setup for constraints (needed for hanging nodes in adaptive refinement)
   void setup_constraints();
 
-  // MPI parallel. /////////////////////////////////////////////////////////////
-
-  // Number of MPI processes.
-  const unsigned int mpi_size;
-
-  // This MPI process.
-  const unsigned int mpi_rank;
-
-  // Parallel output stream.
-  ConditionalOStream pcout;
-
   // Problem definition. ///////////////////////////////////////////////////////
 
   // mu coefficient.
@@ -210,7 +191,7 @@ protected:
   const unsigned int n_refinements;
 
   // Mesh.
-  parallel::fullydistributed::Triangulation<dim> mesh;
+  Triangulation<dim> mesh;
 
   // Finite element space.
   std::unique_ptr<FiniteElement<dim>> fe;
@@ -220,36 +201,30 @@ protected:
 
   // DoF handler.
   DoFHandler<dim> dof_handler;
-
-  // DoFs owned by current process.
-  IndexSet locally_owned_dofs;
-
-  // DoFs relevant to the current process (including ghost DoFs).
-  IndexSet locally_relevant_dofs;
   
   // Constraints for hanging nodes in adaptive refinement
   AffineConstraints<double> constraints;
 
   // Mass matrix M / deltat.
-  TrilinosWrappers::SparseMatrix mass_matrix;
+  SparseMatrix<double> mass_matrix;
 
   // Stiffness matrix A.
-  TrilinosWrappers::SparseMatrix stiffness_matrix;
+  SparseMatrix<double> stiffness_matrix;
 
   // Matrix on the left-hand side (M / deltat + theta A).
-  TrilinosWrappers::SparseMatrix lhs_matrix;
+  SparseMatrix<double> lhs_matrix;
 
   // Matrix on the right-hand side (M / deltat - (1 - theta) A).
-  TrilinosWrappers::SparseMatrix rhs_matrix;
+  SparseMatrix<double> rhs_matrix;
 
   // Right-hand side vector in the linear system.
-  TrilinosWrappers::MPI::Vector system_rhs;
+  Vector<double> system_rhs;
 
-  // System solution (without ghost elements).
-  TrilinosWrappers::MPI::Vector solution_owned;
-
-  // System solution (including ghost elements).
-  TrilinosWrappers::MPI::Vector solution;
+  // System solution
+  Vector<double> solution;
+  
+  // Sparsity pattern
+  SparsityPattern sparsity_pattern;
 };
 
 #endif
