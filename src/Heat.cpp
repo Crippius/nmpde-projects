@@ -9,7 +9,7 @@ Heat::create_mesh()
   std::cout << "Creating cube mesh" << std::endl;
   
   GridGenerator::hyper_cube(mesh, 0.0, 1.0);
-  mesh.refine_global(n_refinements);
+  mesh.refine_global(n_global_refinements);
   
   std::cout << "  Number of elements = " << mesh.n_active_cells()
         << std::endl;
@@ -242,49 +242,46 @@ Heat::output(const unsigned int &time_step) const
 void
 Heat::refine_grid()
 {
-  std::cout << "Refining grid based on error estimation" << std::endl;
+
+  std::cout << std::endl <<  "[Space adaptivity] Performing adaptive mesh refinement" << std::endl;
+
+  std::cout << " Refining grid based on error estimation" << std::endl;
   std::cout << "  Number of active cells before refinement: " 
             << mesh.n_active_cells() << std::endl;
   
-  // Calculate error estimations for each cell
-  Vector<float> estimated_error_per_cell(mesh.n_active_cells());
+
   
-  // Use Kelly Error Estimator with the current solution
+  // Calculate error estimations
+  Vector<float> estimated_error_per_cell(mesh.n_active_cells());
+
   KellyErrorEstimator<dim>::estimate(dof_handler,
                                     QGauss<dim - 1>(r + 1),
-                                    {},  // No boundary function map needed
+                                    {}, 
                                     solution,
                                     estimated_error_per_cell);
   
   // Mark cells for refinement and coarsening
   GridRefinement::refine_and_coarsen_fixed_number(mesh,
                                                  estimated_error_per_cell,
-                                                 0.3,  // Top 30% for refinement
-                                                 0.03); // Bottom 3% for coarsening
+                                                 refinement_percent,
+                                                 coarsening_percent);
   
-  // Create SolutionTransfer object for transferring the solution
+
+  // Execute adaptation
   SolutionTransfer<dim> solution_transfer(dof_handler);
-  
-  // Flag cells for refinement
   mesh.prepare_coarsening_and_refinement();
-  
-  // Prepare the solution transfer
   solution_transfer.prepare_for_coarsening_and_refinement(solution);
-  
-  // Actually refine the mesh
   mesh.execute_coarsening_and_refinement();
   
   std::cout << "  Number of active cells after refinement: " 
             << mesh.n_active_cells() << std::endl;
   
-  // Reinitialize the DoF handler for the new mesh
   dof_handler.distribute_dofs(*fe);
   std::cout << "  Number of DoFs after refinement = " << dof_handler.n_dofs() << std::endl;
   
-  // Set up the constraints for the new mesh
   setup_constraints();
   
-  // Reinitialize the linear system for the new mesh
+  // Reinitialize sparsity pattern
   DynamicSparsityPattern dsp(dof_handler.n_dofs());
   DoFTools::make_sparsity_pattern(dof_handler, dsp, constraints);
   sparsity_pattern.copy_from(dsp);
@@ -295,75 +292,20 @@ Heat::refine_grid()
   lhs_matrix.reinit(sparsity_pattern);
   rhs_matrix.reinit(sparsity_pattern);
   
-  // Reinitialize system vectors for the new mesh size
+  // Reinitialize system vectors
   Vector<double> new_solution(dof_handler.n_dofs());
   system_rhs.reinit(dof_handler.n_dofs());
   
-  // Interpolate the old solution to the new mesh
+  // Interpolate the old solution to the new mesh with constraints
   solution_transfer.interpolate(solution, new_solution);
-  
-  // Assign the interpolated solution to the solution vector
   solution.reinit(dof_handler.n_dofs());
   solution = new_solution;
-  
-  // Apply constraints to the transferred solution
   constraints.distribute(solution);
-  
-  // Reassemble the matrices with the new mesh
+
   std::cout << "  Reassembling matrices for the refined mesh" << std::endl;
   assemble_matrices();
 }
 
-void
-Heat::solve()
-{
-  assemble_matrices();
-
-  std::cout << "===============================================" << std::endl;
-
-  // Apply the initial condition.
-  {
-    std::cout << "Applying the initial condition" << std::endl;
-
-    VectorTools::interpolate(dof_handler, u_0, solution);
-
-    // Output the initial solution.
-    output(0);
-    std::cout << "-----------------------------------------------" << std::endl;
-  }
-
-  unsigned int time_step = 0;
-  double       time      = 0;
-  
-  // Refinement interval - adapt every 5 time steps
-  const unsigned int refinement_interval = 5;
-
-  while (time < T)
-    {
-      time += deltat;
-      ++time_step;
-
-      std::cout << "n = " << std::setw(3) << time_step << ", t = " << std::setw(5)
-            << time << ":" << std::flush;
-
-      // Perform mesh refinement at regular intervals
-      if (time_step % refinement_interval == 0)
-      {
-        std::cout << std::endl << "Performing adaptive mesh refinement" << std::endl;
-        refine_grid();
-        // After refinement, we need to reassemble the RHS with the new mesh
-        assemble_rhs(time);
-      }
-      else
-      {
-        // Regular time step without refinement
-        assemble_rhs(time);
-      }
-      
-      solve_time_step();
-      output(time_step);
-    }
-}
 
 void
 Heat::setup_constraints()
@@ -374,3 +316,119 @@ Heat::setup_constraints()
   DoFTools::make_hanging_node_constraints(dof_handler, constraints);
   constraints.close();
 }
+
+double Heat::estimate_time_error(const double &time, const Vector<double> &prev_solution, double trial_deltat)
+{
+  // Save current state
+  Vector<double> backup_solution = solution;
+  double backup_deltat = deltat;
+
+  // Try with deltat
+  deltat = trial_deltat;
+  solution = prev_solution;
+  assemble_rhs(time + trial_deltat);
+  solve_time_step();
+  Vector<double> sol_big_step = solution;
+
+  // Try with deltat/2
+  deltat = trial_deltat / 2.0;
+  solution = prev_solution;
+  assemble_rhs(time + deltat);
+  solve_time_step();
+  Vector<double> sol_half_step = solution;
+  assemble_rhs(time + 2.0 * deltat);
+  solve_time_step();
+  Vector<double> sol_two_half_steps = solution;
+
+  // Difference in error
+  sol_big_step -= sol_two_half_steps;
+  double error = sol_big_step.l2_norm();
+
+  // Restore state
+  solution = backup_solution;
+  deltat = backup_deltat;
+
+  return error;
+}
+
+
+void Heat::update_deltat(double time, Vector<double> &prev_solution) {
+  bool step_accepted = false;
+  double trial_deltat = deltat;
+  double local_time = time;
+  prev_solution = solution;
+
+  while (!step_accepted)
+  {
+    // Estimate time error for this step
+    double time_error = estimate_time_error(local_time, prev_solution, trial_deltat);
+    if (time_error < time_error_lower_bound && trial_deltat * 2.0 <= max_deltat)
+    {
+      // Time step too small, increase deltat
+      trial_deltat *= 2.0;
+      std::cout << "[Time adaptivity] Time error " << time_error << " < lower bound. Increasing deltat to " << trial_deltat << std::endl;
+      continue;
+    }
+    else if (time_error > time_error_upper_bound && trial_deltat / 2.0 >= min_deltat)
+    {
+      // Time step too large, decrease deltat
+      trial_deltat /= 2.0;
+      std::cout << "[Time adaptivity] Time error " << time_error << " > upper bound. Decreasing deltat to " << trial_deltat << std::endl;
+      continue;
+    }
+    else
+    {
+      // Accept the step
+      deltat = trial_deltat;
+      step_accepted = true;
+      std::cout << "[Time adaptivity] Time error " << time_error << " -> reasonable. Not changing anything" << std::endl;
+    }
+  }
+}
+
+
+
+
+
+void
+Heat::solve()
+{
+
+  assemble_matrices();
+
+  std::cout << "===============================================" << std::endl;
+
+  // Apply the initial condition.
+  {
+    std::cout << "Applying the initial condition" << std::endl;
+    VectorTools::interpolate(dof_handler, u_0, solution);
+    // Output the initial solution.
+    output(0);
+    std::cout << "-----------------------------------------------" << std::endl;
+  }
+  unsigned int time_step = 0;
+  double time = 0;
+
+  while (time < T)
+  {
+
+    // Space Adaptativity
+    if (time_step % refinement_interval == 0)
+      refine_grid();
+
+    // Time Adaptativity
+    if (time_step % time_adapt_interval == 0)
+      update_deltat(time, solution);
+
+    
+    time += deltat;
+    ++time_step;
+    std::cout << "n = " << std::setw(3) << time_step << ", t = " << std::setw(5) << time << ", deltat = " << deltat << ":" << std::flush;
+
+      
+    assemble_rhs(time);
+    solve_time_step();
+    output(time_step);
+  }
+}
+

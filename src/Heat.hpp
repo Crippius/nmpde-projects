@@ -115,13 +115,11 @@ public:
   Heat(const unsigned int &r_,
        const double       &T_,
        const double       &deltat_,
-       const double       &theta_,
-       const unsigned int &n_refinements_ = 3)
+       const double       &theta_)
     : T(T_)
     , r(r_)
     , deltat(deltat_)
     , theta(theta_)
-    , n_refinements(n_refinements_)
   {}
 
   // Initialization.
@@ -153,12 +151,20 @@ protected:
   void
   refine_grid();
 
+  // Setup for constraints (needed for hanging nodes in adaptive refinement)
+  void setup_constraints();
+
+  // Estimate the time discretization error for the current step
+  double estimate_time_error(const double &time, const Vector<double> &prev_solution, double trial_deltat);
+
+  // Update the time step based on the error estimation
+  void update_deltat(double time, Vector<double> &prev_solution);
+
   // Output.
   void
   output(const unsigned int &time_step) const;
   
-  // Setup for constraints (needed for hanging nodes in adaptive refinement)
-  void setup_constraints();
+
 
   // Problem definition. ///////////////////////////////////////////////////////
 
@@ -179,14 +185,11 @@ protected:
   // Polynomial degree.
   const unsigned int r;
 
-  // Time step.
-  const double deltat;
+  // Time step. (not const -> time adaptativity)
+  double deltat;
 
   // Theta parameter of the theta method.
   const double theta;
-
-  // Number of global refinements
-  const unsigned int n_refinements;
 
   // Mesh.
   Triangulation<dim> mesh;
@@ -223,6 +226,30 @@ protected:
   
   // Sparsity pattern
   SparsityPattern sparsity_pattern;
+
+  // Space Adaptativity Parameters. ///////////////////////////////////////////////////////////
+
+  // Initial mesh refinement level
+  const unsigned int n_global_refinements = 2;
+  // # Steps for each space adaptation
+  const unsigned int refinement_interval = 5;
+  // Top X% for refinement
+  const double refinement_percent = 0.1;
+  // Bottom X% for coarsening
+  const double coarsening_percent = 0.9;
+
+  // Time Adaptativity Parameters. ///////////////////////////////////////////////////////////
+
+  // Lower bound for time error
+  double time_error_lower_bound = 0.0005; 
+  // Upper bound for time error
+  double time_error_upper_bound = 0.002;   
+  // Minimum allowed time step
+  double min_deltat = 1e-4;       
+  // Maximum allowed time step
+  double max_deltat = 0.2;              
+  // # Steps for each time adaptation
+  unsigned int time_adapt_interval = 1; 
 };
 
 #endif
