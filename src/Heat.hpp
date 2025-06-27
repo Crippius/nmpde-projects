@@ -32,6 +32,10 @@
 #include <fstream>
 #include <iostream>
 
+#include <vector>
+#include <cmath>
+#include <chrono>
+
 using namespace dealii;
 
 // Class representing the non-linear diffusion problem.
@@ -54,50 +58,45 @@ public:
   };
 
   // TODO: make these selections on main
-  static constexpr double a = 1.0;
-  static constexpr double N = 1.0; 
-  static constexpr double sigma = 0.1; 
-  static const Point<dim> x0; // initialized in Heat.cpp
-
-  // Function for g(t)
-  class GFunction : public Function<dim> {
-  public:
-      virtual double 
-      value(const Point<dim> & /*p*/, 
-            const unsigned int /*component*/= 0) const override 
-      {
-          const double t = this->get_time();
-          return std::exp(-a * std::cos(2 * N * M_PI * t)) / std::exp(a);
-      }
-  };
-
-  // Function for h(x)
-  class HFunction : public Function<dim> {
-  public:
-      virtual double 
-      value(const Point<dim> &p, 
-            const unsigned int /*component*/= 0) const override 
-      {
-        return std::exp(-((p - x0).norm_square()) / (sigma * sigma));
-      }
-  };
-
-  // Function for the forcing term f(x, t) = g(t) * h(x)
+  // Function for the forcing term f(x,t) =
+  //   (∑k A_k sin(2π ν_k t + φ_k))  *  (∑i exp(-||x-x_i||²/σ²))
   class ForcingTerm : public Function<dim> {
   public:
-      ForcingTerm() : Function<dim>() {}
-      
-      virtual double 
-      value(const Point<dim> &p, 
-            const unsigned int /*component*/= 0) const override 
-      {
-        g.set_time(this->get_time());
-        return g.value(Point<dim>()) * h.value(p);
-      }
-      
+    ForcingTerm()
+      : Function<dim>(),
+        A{1.0, 0.5, 0.25},
+        nu{1.0, 3.0, 5.0},
+        phi{1.0, 0.0, 1.0},
+        sigma_spatial(0.1)
+    {
+      // Centri di M = 9 sorgenti su griglia 3×3, in z = 0.5 per il piano mid‐slice
+      centers = {
+        Point<dim>(0.25,0.25,0.5), Point<dim>(0.25,0.50,0.5), Point<dim>(0.25,0.75,0.5),
+        Point<dim>(0.50,0.25,0.5), Point<dim>(0.50,0.50,0.5), Point<dim>(0.50,0.75,0.5),
+        Point<dim>(0.75,0.25,0.5), Point<dim>(0.75,0.50,0.5), Point<dim>(0.75,0.75,0.5)
+      };
+    }
+
+    virtual double value(const Point<dim> &p,
+                        const unsigned int /*component*/=0) const override
+    {
+      const double t = this->get_time();
+      // parte temporale
+      double temporal = 0.0;
+      for (unsigned int k = 0; k < A.size(); ++k)
+        temporal += A[k] * std::sin(2.0*M_PI*nu[k]*t + phi[k]);
+      // parte spaziale
+      double spatial = 0.0;
+      for (const auto &c : centers)
+        spatial += std::exp(- (p.distance(c)*p.distance(c))
+                            / (sigma_spatial*sigma_spatial));
+      return temporal * spatial;
+    }
+
   private:
-      mutable GFunction g;
-      HFunction h;
+    std::vector<double>      A, nu, phi;
+    std::vector<Point<dim>>  centers;
+    double                   sigma_spatial;
   };
 
   // Function for the initial condition.
@@ -250,6 +249,21 @@ protected:
   double max_deltat = 0.2;              
   // # Steps for each time adaptation
   unsigned int time_adapt_interval = 1; 
+
+  // PERFORMANCE TRACKING
+  std::chrono::duration<double> time_total{0.0};
+
+  std::chrono::duration<double> time_refine{0.0};
+
+  std::chrono::duration<double> time_assemble_matrices{0.0};
+
+  std::chrono::duration<double> time_assemble_rhs{0.0};
+
+  std::chrono::duration<double> time_solve_step{0.0};
+
+  unsigned int n_time_steps{0};
+
+  unsigned int n_refinements{0};
 };
 
 #endif

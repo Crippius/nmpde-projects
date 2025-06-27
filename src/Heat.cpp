@@ -1,7 +1,6 @@
 #include "Heat.hpp"
+#include <chrono>
 
-// x0 definition
-const Point<Heat::dim> Heat::x0 = Point<Heat::dim>(0.5, 0.5, 0.5);
 
 void
 Heat::create_mesh()
@@ -393,8 +392,14 @@ void Heat::update_deltat(double time, Vector<double> &prev_solution) {
 void
 Heat::solve()
 {
+  auto t_total_start = std::chrono::high_resolution_clock::now();
+
+  auto t0 = std::chrono::high_resolution_clock::now();
 
   assemble_matrices();
+
+  auto t1 = std::chrono::high_resolution_clock::now();
+  time_assemble_matrices += t1 - t0;
 
   std::cout << "===============================================" << std::endl;
 
@@ -408,13 +413,21 @@ Heat::solve()
   }
   unsigned int time_step = 0;
   double time = 0;
+  n_time_steps = 0;
 
   while (time < T)
   {
+    ++n_time_steps;
 
     // Space Adaptativity
-    if (time_step % refinement_interval == 0)
+    if (time_step % refinement_interval == 0){
+      auto tr0 = std::chrono::high_resolution_clock::now();
       refine_grid();
+      auto tr1 = std::chrono::high_resolution_clock::now();
+      time_refine += tr1 - tr0;
+      n_refinements++;
+    }
+      
 
     // Time Adaptativity
     if (time_step % time_adapt_interval == 0)
@@ -425,10 +438,33 @@ Heat::solve()
     ++time_step;
     std::cout << "n = " << std::setw(3) << time_step << ", t = " << std::setw(5) << time << ", deltat = " << deltat << ":" << std::flush;
 
-      
+    t0 = std::chrono::high_resolution_clock::now();
     assemble_rhs(time);
+    t1 = std::chrono::high_resolution_clock::now();
+    time_assemble_rhs += t1 - t0;
+
+    t0 = std::chrono::high_resolution_clock::now();
     solve_time_step();
+    t1 = std::chrono::high_resolution_clock::now();
+    time_solve_step += t1 - t0;
+
     output(time_step);
   }
+
+  auto t_total_end = std::chrono::high_resolution_clock::now();
+  time_total = t_total_end - t_total_start;
+
+  // --- stampa riepilogo performance ---
+  std::cout << "\n=== Performance summary ===\n";
+  std::cout << " Total wall-clock:        " << time_total.count()            << " s\n";
+  std::cout << " Assembly matrices:       " << time_assemble_matrices.count() << " s\n";
+  std::cout << " Assembly RHS:            " << time_assemble_rhs.count()      << " s\n";
+  std::cout << " Solve steps:             " << time_solve_step.count()
+            << " s over " << n_time_steps << " steps\n";
+  std::cout << " Refinement time:         " << time_refine.count()       << " s\n";
+  std::cout << " Adaptive refinements:    " << n_refinements               << "\n";
+  std::cout << " Final DoFs:              " << dof_handler.n_dofs()        << "\n";
+  std::cout << " Final active cells:      " << mesh.n_active_cells()       << "\n\n";
+
 }
 
