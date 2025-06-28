@@ -264,6 +264,15 @@ protected:
   unsigned int n_time_steps{0};
 
   unsigned int n_refinements{0};
+
+  unsigned long sum_dofs{0};         // accumulate DoFs over time
+  unsigned int  num_assemblies{0};   // how many assemble_matrices() calls
+
+  // weights (seconds per unit)
+  double beta {1e-6};   // per DoF
+  double gamma{1e-2};   // per time step
+  double delta{0.1};    // per assembly
+  double zeta {0.5};    // per refinement
 };
 
 #endif

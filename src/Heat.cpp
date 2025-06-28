@@ -392,14 +392,23 @@ void Heat::update_deltat(double time, Vector<double> &prev_solution) {
 void
 Heat::solve()
 {
+  // --- start wall-clock timer ---
   auto t_total_start = std::chrono::high_resolution_clock::now();
+
+  // --- reset resource counters ---
+  sum_dofs       = 0;
+  num_assemblies = 0;
+  n_time_steps   = 0;
+  n_refinements  = 0;
 
   auto t0 = std::chrono::high_resolution_clock::now();
 
   assemble_matrices();
 
   auto t1 = std::chrono::high_resolution_clock::now();
+
   time_assemble_matrices += t1 - t0;
+  ++num_assemblies; 
 
   std::cout << "===============================================" << std::endl;
 
@@ -418,6 +427,7 @@ Heat::solve()
   while (time < T)
   {
     ++n_time_steps;
+    sum_dofs += dof_handler.n_dofs();
 
     // Space Adaptativity
     if (time_step % refinement_interval == 0){
@@ -426,6 +436,7 @@ Heat::solve()
       auto tr1 = std::chrono::high_resolution_clock::now();
       time_refine += tr1 - tr0;
       n_refinements++;
+      ++num_assemblies;
     }
       
 
@@ -454,17 +465,29 @@ Heat::solve()
   auto t_total_end = std::chrono::high_resolution_clock::now();
   time_total = t_total_end - t_total_start;
 
-  // --- stampa riepilogo performance ---
-  std::cout << "\n=== Performance summary ===\n";
-  std::cout << " Total wall-clock:        " << time_total.count()            << " s\n";
-  std::cout << " Assembly matrices:       " << time_assemble_matrices.count() << " s\n";
-  std::cout << " Assembly RHS:            " << time_assemble_rhs.count()      << " s\n";
-  std::cout << " Solve steps:             " << time_solve_step.count()
-            << " s over " << n_time_steps << " steps\n";
-  std::cout << " Refinement time:         " << time_refine.count()       << " s\n";
-  std::cout << " Adaptive refinements:    " << n_refinements               << "\n";
-  std::cout << " Final DoFs:              " << dof_handler.n_dofs()        << "\n";
-  std::cout << " Final active cells:      " << mesh.n_active_cells()       << "\n\n";
+  // --- print performance summary ---
+  // 1) wall-clock time
+  std::cout << "\n=== Performance Summary ===\n";
+  std::cout << "Wall-clock time:              "
+            << time_total.count() << " s\n";
+
+  // 2) resource cost C_res
+  const double C_res =
+      beta  * static_cast<double>(sum_dofs)
+    + gamma * static_cast<double>(n_time_steps)
+    + delta * static_cast<double>(num_assemblies)
+    + zeta  * static_cast<double>(n_refinements);
+
+  std::cout << "Resource cost (C_res):        "
+            << C_res << " s-equivalent\n";
+  std::cout << "  - sum DoFs    = " << sum_dofs
+            << "  → beta*sumDoFs    = " << beta  * sum_dofs << " s\n";
+  std::cout << "  - time steps   = " << n_time_steps
+            << "  → gamma*numSteps  = " << gamma * n_time_steps << " s\n";
+  std::cout << "  - assemblies   = " << num_assemblies
+            << "  → delta*numAsm    = " << delta * num_assemblies << " s\n";
+  std::cout << "  - refinements  = " << n_refinements
+            << "  → zeta*numRef     = " << zeta * n_refinements << " s\n\n";
 
 }
 
