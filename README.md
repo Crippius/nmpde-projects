@@ -22,13 +22,13 @@ This project explores **adaptive methods** in both **space and time** for solvin
 
 ## Strong formulation
 $$
-\left\{
+\begin{cases} 
 \begin{aligned}
 \frac{\partial u}{\partial t} - \nabla \cdot (\mu \nabla u) &= f && \text{in } \Omega \times (0,T), \\
 \mu \nabla u \cdot \mathbf{n} &= 0 && \text{on } \partial \Omega \times (0,T), \\
 u &= 0 && \text{in } \Omega \times \{0\},
 \end{aligned}
-\right.
+\end{cases} 
 $$
 
 $$
