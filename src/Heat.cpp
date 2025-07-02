@@ -1,6 +1,7 @@
 #include "Heat.hpp"
 #include <chrono>
 
+
 void
 Heat::declare_parameters(ParameterHandler &prm)
 {
@@ -63,6 +64,7 @@ Heat::parse_parameters(ParameterHandler &prm)
   prm.leave_subsection();
 }
 
+
 Heat::Heat(ParameterHandler &prm)
   : forcing_term(0.0) // Inizializzazione temporanea, T verrà sovrascritto
 {
@@ -72,6 +74,7 @@ Heat::Heat(ParameterHandler &prm)
   // Ora che T è noto, aggiorna il membro T della classe ForcingTerm
   const_cast<double&>(forcing_term.T) = T;
 }
+
 
 void
 Heat::create_mesh()
@@ -183,6 +186,7 @@ Heat::assemble_matrices()
 
       for (unsigned int q = 0; q < n_q; ++q)
         {
+          // Evaluate coefficients on this quadrature node.
           const double mu_loc = mu.value(fe_values.quadrature_point(q));
 
           for (unsigned int i = 0; i < dofs_per_cell; ++i)
@@ -202,6 +206,7 @@ Heat::assemble_matrices()
 
       cell->get_dof_indices(dof_indices);
 
+      // Apply constraints while assembling
       constraints.distribute_local_to_global(cell_mass_matrix, 
                                             dof_indices, 
                                             mass_matrix);
@@ -211,9 +216,13 @@ Heat::assemble_matrices()
                                            stiffness_matrix);
     }
 
+  // We build the matrix on the left-hand side of the algebraic problem (the one
+  // that we'll invert at each timestep).
   lhs_matrix.copy_from(mass_matrix);
   lhs_matrix.add(theta, stiffness_matrix);
 
+  // We build the matrix on the right-hand side (the one that multiplies the old
+  // solution un).
   rhs_matrix.copy_from(mass_matrix);
   rhs_matrix.add(-(1.0 - theta), stiffness_matrix);
 }
@@ -247,6 +256,7 @@ Heat::assemble_rhs(const double &time)
           const double f_new_loc =
             forcing_term.value(fe_values.quadrature_point(q));
 
+          // Compute f(tn)
           forcing_term.set_time(time - deltat);
           const double f_old_loc =
             forcing_term.value(fe_values.quadrature_point(q));
@@ -297,6 +307,7 @@ Heat::output(const unsigned int &time_step) const
 void
 Heat::refine_grid()
 {
+
   std::cout << std::endl <<  "[Space adaptivity] Performing adaptive mesh refinement" << std::endl;
 
   std::cout << " Refining grid based on error estimation" << std::endl;
@@ -422,12 +433,13 @@ void Heat::update_deltat(double time, Vector<double> &prev_solution) {
 void
 Heat::solve()
 {
+  // --- start wall-clock timer ---
   auto t_total_start = std::chrono::high_resolution_clock::now();
 
-  sum_dofs       = 0;
-  num_assemblies = 0;
+  // --- reset resource counters ---
   n_time_steps   = 0;
-  n_refinements  = 0;
+  unsigned int num_assemblies = 0;
+  unsigned int n_refinements  = 0;
 
   auto t0 = std::chrono::high_resolution_clock::now();
   assemble_matrices();
@@ -446,12 +458,10 @@ Heat::solve()
   
   unsigned int time_step = 0;
   double time = 0;
-  n_time_steps = 0;
 
   while (time < T)
   {
     ++n_time_steps;
-    sum_dofs += dof_handler.n_dofs();
 
     if (time_step > 0 && time_step % refinement_interval == 0){
       auto tr0 = std::chrono::high_resolution_clock::now();
@@ -470,7 +480,7 @@ Heat::solve()
         deltat -= (time - T);
         time = T;
     }
-    
+
     ++time_step;
     std::cout << "n = " << std::setw(3) << time_step << ", t = " << std::setw(5) << time << ", deltat = " << deltat << ":" << std::flush;
 
@@ -490,24 +500,32 @@ Heat::solve()
   auto t_total_end = std::chrono::high_resolution_clock::now();
   time_total = t_total_end - t_total_start;
 
-  std::cout << "\n=== Performance Summary ===\n";
-  std::cout << "Wall-clock time:              "
-            << time_total.count() << " s\n";
+  // --- Calcola e stampa le nuove metriche ---
+  compute_and_print_metrics();
+}
 
-  const double C_res =
-      beta  * static_cast<double>(sum_dofs)
-    + gamma * static_cast<double>(n_time_steps)
-    + delta * static_cast<double>(num_assemblies)
-    + zeta  * static_cast<double>(n_refinements);
+void
+Heat::compute_and_print_metrics() const
+{
+  // 1. RACCOLTA DEI DATI DI PERFORMANCE
+  const double total_time = time_total.count();
+  const double n_dofs = dof_handler.n_dofs();
+  const double h_min = GridTools::minimal_cell_diameter(mesh);
 
-  std::cout << "Resource cost (C_res):        "
-            << C_res << " s-equivalent\n";
-  std::cout << "  - sum DoFs    = " << sum_dofs
-            << "  → beta*sumDoFs    = " << beta  * sum_dofs << " s\n";
-  std::cout << "  - time steps   = " << n_time_steps
-            << "  → gamma*numSteps  = " << gamma * n_time_steps << " s\n";
-  std::cout << "  - assemblies   = " << num_assemblies
-            << "  → delta*numAsm    = " << delta * num_assemblies << " s\n";
-  std::cout << "  - refinements  = " << n_refinements
-            << "  → zeta*numRef     = " << zeta * n_refinements << " s\n\n";
+  // 2. CALCOLO DELLE METRICHE
+  const double r_res       = h_min / n_dofs;
+  const double r_t_per_dof = total_time / n_dofs;
+
+  // 3. STAMPA DEI RISULTATI
+  std::cout << "\n===============================================" << std::endl;
+  std::cout << "=== Performance Metrics Summary ===" << std::endl;
+  std::cout << "-----------------------------------------------" << std::endl;
+  std::cout << "Total Wall-clock time (t):              " << total_time << " s" << std::endl;
+  std::cout << "Final Degrees of Freedom (n_Omega):     " << n_dofs << std::endl;
+  std::cout << "Minimum cell diameter (h):              " << h_min << std::endl;
+  std::cout << "-----------------------------------------------" << std::endl;
+  std::cout << "Resolution & Resource Metrics:" << std::endl;
+  std::cout << "  - r_res (h / n_Omega):                " << r_res << std::endl;
+  std::cout << "  - r_t-per-DOF (t / n_Omega):          " << r_t_per_dof << " s/DOF" << std::endl;
+  std::cout << "===============================================" << std::endl;
 }

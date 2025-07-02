@@ -139,7 +139,7 @@ public:
       return temporal_wave * spatial_term;
     }
 
-  public: // Public per permettere la modifica da Heat.cpp
+  public: 
     const double            T; // Tempo finale per la logica a staffetta
     std::vector<double>     A, nu, phi;
     std::vector<Point<dim>> centers;
@@ -178,6 +178,10 @@ protected:
   void
   parse_parameters(ParameterHandler &prm);
 
+  // Metodo per calcolare e stampare le metriche di performance
+  void
+  compute_and_print_metrics() const;
+  
   // Create the cube mesh
   void
   create_mesh();
@@ -213,17 +217,11 @@ protected:
 
   // Problem definition. ///////////////////////////////////////////////////////
 
-  // mu coefficient.
   FunctionMu mu;
-
-  // Forcing term.
   ForcingTerm forcing_term;
-
-  // Initial condition.
   FunctionU0 u_0;
-
+  
   // Discretization. ///////////////////////////////////////////////////////////
-  // I valori verranno letti dal file di parametri
   unsigned int r;
   double       T;
   double       deltat;
@@ -244,36 +242,22 @@ protected:
   // Constraints for hanging nodes in adaptive refinement
   AffineConstraints<double> constraints;
 
-  // Mass matrix M / deltat.
+  // Matrici e Vettori del sistema
   SparseMatrix<double> mass_matrix;
-
-  // Stiffness matrix A.
   SparseMatrix<double> stiffness_matrix;
-
-  // Matrix on the left-hand side (M / deltat + theta A).
   SparseMatrix<double> lhs_matrix;
-
-  // Matrix on the right-hand side (M / deltat - (1 - theta) A).
   SparseMatrix<double> rhs_matrix;
-
-  // Right-hand side vector in the linear system.
   Vector<double> system_rhs;
-
-  // System solution
   Vector<double> solution;
-  
-  // Sparsity pattern
   SparsityPattern sparsity_pattern;
 
   // Space Adaptativity Parameters. ///////////////////////////////////////////////////////////
-  // I valori verranno letti dal file di parametri
-  const unsigned int n_global_refinements = 2; // Questo può rimanere hardcoded
+  const unsigned int n_global_refinements = 1;
   unsigned int refinement_interval;
   double       refinement_percent;
   double       coarsening_percent;
 
   // Time Adaptativity Parameters. ///////////////////////////////////////////////////////////
-  // I valori verranno letti dal file di parametri
   unsigned int time_adapt_interval;
   double       time_error_lower_bound;
   double       time_error_upper_bound;
@@ -286,17 +270,8 @@ protected:
   std::chrono::duration<double> time_assemble_matrices{0.0};
   std::chrono::duration<double> time_assemble_rhs{0.0};
   std::chrono::duration<double> time_solve_step{0.0};
-
   unsigned int n_time_steps{0};
-  unsigned int n_refinements{0};
-  unsigned long sum_dofs{0};
-  unsigned int  num_assemblies{0};
 
-  // weights (seconds per unit)
-  double beta {1e-6};
-  double gamma{1e-2};
-  double delta{0.1};
-  double zeta {0.5};
 };
 
 #endif
