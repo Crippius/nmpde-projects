@@ -4,15 +4,28 @@
 int
 main(int argc, char *argv[])
 {
-  const unsigned int degree = 1;
-  const double T = 2.0;  
-  double deltat = 0.05;
-  const double theta  = 0.5;        
+  if (argc < 2)
+    {
+      std::cerr << "Usage: " << argv[0] << " <parameter_file>" << std::endl;
+      return 1;
+    }
 
-  Heat problem(degree, T, deltat, theta);
+  try
+  {
+    ParameterHandler prm;
 
-  problem.setup();
-  problem.solve();
+    Heat::declare_parameters(prm);
+    prm.parse_input(argv[1]);
+    Heat problem(prm);
 
+    problem.setup();
+    problem.solve();
+  }
+  catch (const std::exception &e)
+  {
+    std::cerr << "Exception caught: " << e.what() << std::endl;
+    return 1;
+  }
+  
   return 0;
 }

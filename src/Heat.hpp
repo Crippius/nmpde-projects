@@ -36,6 +36,8 @@
 #include <cmath>
 #include <chrono>
 
+#include <deal.II/base/parameter_handler.h>
+
 using namespace dealii;
 
 // Class representing the non-linear diffusion problem.
@@ -57,9 +59,6 @@ public:
     }
   };
 
-  // TODO: make these selections on main
-  // Function for the forcing term:
-  //   f(x,t) = (∑ₖ Aₖ sin(2π νₖ t + φₖ))  *  (∑ᵢ exp(-||x-xᵢ||²/σ_spatial²))
   // Function for the forcing term (9 sources, relay activation in groups).
   class ForcingTerm : public Function<dim>
   {
@@ -140,7 +139,7 @@ public:
       return temporal_wave * spatial_term;
     }
 
-  private:
+  public: // Public per permettere la modifica da Heat.cpp
     const double            T; // Tempo finale per la logica a staffetta
     std::vector<double>     A, nu, phi;
     std::vector<Point<dim>> centers;
@@ -159,16 +158,12 @@ public:
     }
   };
 
-  Heat(const unsigned int &r_,
-       const double       &T_,
-       const double       &deltat_,
-       const double       &theta_)
-    : forcing_term(T_)
-    , T(T_)
-    , r(r_)
-    , deltat(deltat_)
-    , theta(theta_)
-  {}
+  // Funzione statica per dichiarare i parametri
+  static void
+  declare_parameters(ParameterHandler &prm);
+
+  // Costruttore modificato per accettare ParameterHandler
+  Heat(ParameterHandler &prm);
 
   // Initialization.
   void
@@ -179,6 +174,10 @@ public:
   solve();
 
 protected:
+  // Metodo per leggere i parametri dall'handler
+  void
+  parse_parameters(ParameterHandler &prm);
+
   // Create the cube mesh
   void
   create_mesh();
@@ -211,8 +210,6 @@ protected:
   // Output.
   void
   output(const unsigned int &time_step) const;
-  
-
 
   // Problem definition. ///////////////////////////////////////////////////////
 
@@ -225,19 +222,12 @@ protected:
   // Initial condition.
   FunctionU0 u_0;
 
-  // Final time.
-  const double T;
-
   // Discretization. ///////////////////////////////////////////////////////////
-
-  // Polynomial degree.
-  const unsigned int r;
-
-  // Time step. (not const -> time adaptativity)
-  double deltat;
-
-  // Theta parameter of the theta method.
-  const double theta;
+  // I valori verranno letti dal file di parametri
+  unsigned int r;
+  double       T;
+  double       deltat;
+  double       theta;
 
   // Mesh.
   Triangulation<dim> mesh;
@@ -276,52 +266,37 @@ protected:
   SparsityPattern sparsity_pattern;
 
   // Space Adaptativity Parameters. ///////////////////////////////////////////////////////////
-
-  // Initial mesh refinement level
-  const unsigned int n_global_refinements = 2;
-  // # Steps for each space adaptation
-  const unsigned int refinement_interval = 5;
-  // Top X% for refinement
-  const double refinement_percent = 0.1;
-  // Bottom X% for coarsening
-  const double coarsening_percent = 0.9;
+  // I valori verranno letti dal file di parametri
+  const unsigned int n_global_refinements = 2; // Questo può rimanere hardcoded
+  unsigned int refinement_interval;
+  double       refinement_percent;
+  double       coarsening_percent;
 
   // Time Adaptativity Parameters. ///////////////////////////////////////////////////////////
-
-  // Lower bound for time error
-  double time_error_lower_bound = 0.0005; 
-  // Upper bound for time error
-  double time_error_upper_bound = 0.002;   
-  // Minimum allowed time step
-  double min_deltat = 1e-4;       
-  // Maximum allowed time step
-  double max_deltat = 0.2;              
-  // # Steps for each time adaptation
-  unsigned int time_adapt_interval = 1; 
+  // I valori verranno letti dal file di parametri
+  unsigned int time_adapt_interval;
+  double       time_error_lower_bound;
+  double       time_error_upper_bound;
+  double       min_deltat;
+  double       max_deltat;
 
   // PERFORMANCE TRACKING
   std::chrono::duration<double> time_total{0.0};
-
   std::chrono::duration<double> time_refine{0.0};
-
   std::chrono::duration<double> time_assemble_matrices{0.0};
-
   std::chrono::duration<double> time_assemble_rhs{0.0};
-
   std::chrono::duration<double> time_solve_step{0.0};
 
   unsigned int n_time_steps{0};
-
   unsigned int n_refinements{0};
-
-  unsigned long sum_dofs{0};         // accumulate DoFs over time
-  unsigned int  num_assemblies{0};   // how many assemble_matrices() calls
+  unsigned long sum_dofs{0};
+  unsigned int  num_assemblies{0};
 
   // weights (seconds per unit)
-  double beta {1e-6};   // per DoF
-  double gamma{1e-2};   // per time step
-  double delta{0.1};    // per assembly
-  double zeta {0.5};    // per refinement
+  double beta {1e-6};
+  double gamma{1e-2};
+  double delta{0.1};
+  double zeta {0.5};
 };
 
 #endif

@@ -1,6 +1,77 @@
 #include "Heat.hpp"
 #include <chrono>
 
+void
+Heat::declare_parameters(ParameterHandler &prm)
+{
+  prm.enter_subsection("Discretization");
+  {
+    prm.declare_entry("Degree", "1", Patterns::Integer(0), "Polynomial degree of FE");
+    prm.declare_entry("Final time", "2.0", Patterns::Double(0.0), "Final time T");
+    prm.declare_entry("Initial deltat", "0.05", Patterns::Double(0.0), "Initial time step size");
+    prm.declare_entry("Theta", "0.5", Patterns::Double(0.0, 1.0), "Theta for the time-stepping scheme");
+  }
+  prm.leave_subsection();
+
+  prm.enter_subsection("Space Adaptivity");
+  {
+    prm.declare_entry("Refinement interval", "5", Patterns::Integer(1), "Steps between mesh refinements");
+    prm.declare_entry("Refinement fraction", "0.1", Patterns::Double(0.0, 1.0), "Top fraction of cells to refine");
+    prm.declare_entry("Coarsening fraction", "0.9", Patterns::Double(0.0, 1.0), "Bottom fraction of cells to coarsen");
+  }
+  prm.leave_subsection();
+
+  prm.enter_subsection("Time Adaptivity");
+  {
+    prm.declare_entry("Adaptivity interval", "1", Patterns::Integer(1), "Steps between time error checks");
+    prm.declare_entry("Error lower bound", "0.0005", Patterns::Double(0.0), "Lower bound for time error");
+    prm.declare_entry("Error upper bound", "0.002", Patterns::Double(0.0), "Upper bound for time error");
+    prm.declare_entry("Min deltat", "1e-4", Patterns::Double(0.0), "Minimum allowed time step");
+    prm.declare_entry("Max deltat", "0.2", Patterns::Double(0.0), "Maximum allowed time step");
+  }
+  prm.leave_subsection();
+}
+
+void
+Heat::parse_parameters(ParameterHandler &prm)
+{
+  prm.enter_subsection("Discretization");
+  {
+    r      = prm.get_integer("Degree");
+    T      = prm.get_double("Final time");
+    deltat = prm.get_double("Initial deltat");
+    theta  = prm.get_double("Theta");
+  }
+  prm.leave_subsection();
+
+  prm.enter_subsection("Space Adaptivity");
+  {
+    refinement_interval = prm.get_integer("Refinement interval");
+    refinement_percent  = prm.get_double("Refinement fraction");
+    coarsening_percent  = prm.get_double("Coarsening fraction");
+  }
+  prm.leave_subsection();
+
+  prm.enter_subsection("Time Adaptivity");
+  {
+    time_adapt_interval    = prm.get_integer("Adaptivity interval");
+    time_error_lower_bound = prm.get_double("Error lower bound");
+    time_error_upper_bound = prm.get_double("Error upper bound");
+    min_deltat             = prm.get_double("Min deltat");
+    max_deltat             = prm.get_double("Max deltat");
+  }
+  prm.leave_subsection();
+}
+
+Heat::Heat(ParameterHandler &prm)
+  : forcing_term(0.0) // Inizializzazione temporanea, T verrà sovrascritto
+{
+  // Leggi i parametri dal file e popola le variabili membro
+  parse_parameters(prm);
+  
+  // Ora che T è noto, aggiorna il membro T della classe ForcingTerm
+  const_cast<double&>(forcing_term.T) = T;
+}
 
 void
 Heat::create_mesh()
@@ -112,7 +183,6 @@ Heat::assemble_matrices()
 
       for (unsigned int q = 0; q < n_q; ++q)
         {
-          // Evaluate coefficients on this quadrature node.
           const double mu_loc = mu.value(fe_values.quadrature_point(q));
 
           for (unsigned int i = 0; i < dofs_per_cell; ++i)
@@ -132,7 +202,6 @@ Heat::assemble_matrices()
 
       cell->get_dof_indices(dof_indices);
 
-      // Apply constraints while assembling
       constraints.distribute_local_to_global(cell_mass_matrix, 
                                             dof_indices, 
                                             mass_matrix);
@@ -142,13 +211,9 @@ Heat::assemble_matrices()
                                            stiffness_matrix);
     }
 
-  // We build the matrix on the left-hand side of the algebraic problem (the one
-  // that we'll invert at each timestep).
   lhs_matrix.copy_from(mass_matrix);
   lhs_matrix.add(theta, stiffness_matrix);
 
-  // We build the matrix on the right-hand side (the one that multiplies the old
-  // solution un).
   rhs_matrix.copy_from(mass_matrix);
   rhs_matrix.add(-(1.0 - theta), stiffness_matrix);
 }
@@ -178,16 +243,10 @@ Heat::assemble_rhs(const double &time)
 
       for (unsigned int q = 0; q < n_q; ++q)
         {
-          // We need to compute the forcing term at the current time (tn+1) and
-          // at the old time (tn). deal.II Functions can be computed at a
-          // specific time by calling their set_time method.
-
-          // Compute f(tn+1)
           forcing_term.set_time(time);
           const double f_new_loc =
             forcing_term.value(fe_values.quadrature_point(q));
 
-          // Compute f(tn)
           forcing_term.set_time(time - deltat);
           const double f_old_loc =
             forcing_term.value(fe_values.quadrature_point(q));
@@ -200,11 +259,9 @@ Heat::assemble_rhs(const double &time)
         }
 
       cell->get_dof_indices(dof_indices);
-      // Apply constraints while assembling
       constraints.distribute_local_to_global(cell_rhs, dof_indices, system_rhs);
     }
 
-  // Add the term that comes from the old solution.
   rhs_matrix.vmult_add(system_rhs, solution);
 }
 
@@ -219,7 +276,6 @@ Heat::solve_time_step()
 
   solver.solve(lhs_matrix, solution, system_rhs, preconditioner);
   
-  // Apply constraints
   constraints.distribute(solution);
   
   std::cout << "  " << solver_control.last_step() << " CG iterations" << std::endl;
@@ -241,16 +297,12 @@ Heat::output(const unsigned int &time_step) const
 void
 Heat::refine_grid()
 {
-
   std::cout << std::endl <<  "[Space adaptivity] Performing adaptive mesh refinement" << std::endl;
 
   std::cout << " Refining grid based on error estimation" << std::endl;
   std::cout << "  Number of active cells before refinement: " 
             << mesh.n_active_cells() << std::endl;
   
-
-  
-  // Calculate error estimations
   Vector<float> estimated_error_per_cell(mesh.n_active_cells());
 
   KellyErrorEstimator<dim>::estimate(dof_handler,
@@ -259,14 +311,11 @@ Heat::refine_grid()
                                     solution,
                                     estimated_error_per_cell);
   
-  // Mark cells for refinement and coarsening
   GridRefinement::refine_and_coarsen_fixed_number(mesh,
                                                  estimated_error_per_cell,
                                                  refinement_percent,
                                                  coarsening_percent);
   
-
-  // Execute adaptation
   SolutionTransfer<dim> solution_transfer(dof_handler);
   mesh.prepare_coarsening_and_refinement();
   solution_transfer.prepare_for_coarsening_and_refinement(solution);
@@ -280,22 +329,18 @@ Heat::refine_grid()
   
   setup_constraints();
   
-  // Reinitialize sparsity pattern
   DynamicSparsityPattern dsp(dof_handler.n_dofs());
   DoFTools::make_sparsity_pattern(dof_handler, dsp, constraints);
   sparsity_pattern.copy_from(dsp);
   
-  // Reinitialize matrices
   mass_matrix.reinit(sparsity_pattern);
   stiffness_matrix.reinit(sparsity_pattern);
   lhs_matrix.reinit(sparsity_pattern);
   rhs_matrix.reinit(sparsity_pattern);
   
-  // Reinitialize system vectors
   Vector<double> new_solution(dof_handler.n_dofs());
   system_rhs.reinit(dof_handler.n_dofs());
   
-  // Interpolate the old solution to the new mesh with constraints
   solution_transfer.interpolate(solution, new_solution);
   solution.reinit(dof_handler.n_dofs());
   solution = new_solution;
@@ -304,7 +349,6 @@ Heat::refine_grid()
   std::cout << "  Reassembling matrices for the refined mesh" << std::endl;
   assemble_matrices();
 }
-
 
 void
 Heat::setup_constraints()
@@ -318,18 +362,15 @@ Heat::setup_constraints()
 
 double Heat::estimate_time_error(const double &time, const Vector<double> &prev_solution, double trial_deltat)
 {
-  // Save current state
   Vector<double> backup_solution = solution;
   double backup_deltat = deltat;
 
-  // Try with deltat
   deltat = trial_deltat;
   solution = prev_solution;
   assemble_rhs(time + trial_deltat);
   solve_time_step();
   Vector<double> sol_big_step = solution;
 
-  // Try with deltat/2
   deltat = trial_deltat / 2.0;
   solution = prev_solution;
   assemble_rhs(time + deltat);
@@ -339,17 +380,14 @@ double Heat::estimate_time_error(const double &time, const Vector<double> &prev_
   solve_time_step();
   Vector<double> sol_two_half_steps = solution;
 
-  // Difference in error
   sol_big_step -= sol_two_half_steps;
   double error = sol_big_step.l2_norm();
 
-  // Restore state
   solution = backup_solution;
   deltat = backup_deltat;
 
   return error;
 }
-
 
 void Heat::update_deltat(double time, Vector<double> &prev_solution) {
   bool step_accepted = false;
@@ -359,25 +397,21 @@ void Heat::update_deltat(double time, Vector<double> &prev_solution) {
 
   while (!step_accepted)
   {
-    // Estimate time error for this step
     double time_error = estimate_time_error(local_time, prev_solution, trial_deltat);
     if (time_error < time_error_lower_bound && trial_deltat * 2.0 <= max_deltat)
     {
-      // Time step too small, increase deltat
       trial_deltat *= 2.0;
       std::cout << "[Time adaptivity] Time error " << time_error << " < lower bound. Increasing deltat to " << trial_deltat << std::endl;
       continue;
     }
     else if (time_error > time_error_upper_bound && trial_deltat / 2.0 >= min_deltat)
     {
-      // Time step too large, decrease deltat
       trial_deltat /= 2.0;
       std::cout << "[Time adaptivity] Time error " << time_error << " > upper bound. Decreasing deltat to " << trial_deltat << std::endl;
       continue;
     }
     else
     {
-      // Accept the step
       deltat = trial_deltat;
       step_accepted = true;
       std::cout << "[Time adaptivity] Time error " << time_error << " -> reasonable. Not changing anything" << std::endl;
@@ -385,41 +419,31 @@ void Heat::update_deltat(double time, Vector<double> &prev_solution) {
   }
 }
 
-
-
-
-
 void
 Heat::solve()
 {
-  // --- start wall-clock timer ---
   auto t_total_start = std::chrono::high_resolution_clock::now();
 
-  // --- reset resource counters ---
   sum_dofs       = 0;
   num_assemblies = 0;
   n_time_steps   = 0;
   n_refinements  = 0;
 
   auto t0 = std::chrono::high_resolution_clock::now();
-
   assemble_matrices();
-
   auto t1 = std::chrono::high_resolution_clock::now();
-
   time_assemble_matrices += t1 - t0;
   ++num_assemblies; 
 
   std::cout << "===============================================" << std::endl;
 
-  // Apply the initial condition.
   {
     std::cout << "Applying the initial condition" << std::endl;
     VectorTools::interpolate(dof_handler, u_0, solution);
-    // Output the initial solution.
     output(0);
     std::cout << "-----------------------------------------------" << std::endl;
   }
+  
   unsigned int time_step = 0;
   double time = 0;
   n_time_steps = 0;
@@ -429,8 +453,7 @@ Heat::solve()
     ++n_time_steps;
     sum_dofs += dof_handler.n_dofs();
 
-    // Space Adaptativity
-    if (time_step % refinement_interval == 0){
+    if (time_step > 0 && time_step % refinement_interval == 0){
       auto tr0 = std::chrono::high_resolution_clock::now();
       refine_grid();
       auto tr1 = std::chrono::high_resolution_clock::now();
@@ -439,13 +462,15 @@ Heat::solve()
       ++num_assemblies;
     }
       
-
-    // Time Adaptativity
-    if (time_step % time_adapt_interval == 0)
+    if (time_step > 0 && time_step % time_adapt_interval == 0)
       update_deltat(time, solution);
-
     
     time += deltat;
+    if (time > T) {
+        deltat -= (time - T);
+        time = T;
+    }
+    
     ++time_step;
     std::cout << "n = " << std::setw(3) << time_step << ", t = " << std::setw(5) << time << ", deltat = " << deltat << ":" << std::flush;
 
@@ -465,13 +490,10 @@ Heat::solve()
   auto t_total_end = std::chrono::high_resolution_clock::now();
   time_total = t_total_end - t_total_start;
 
-  // --- print performance summary ---
-  // 1) wall-clock time
   std::cout << "\n=== Performance Summary ===\n";
   std::cout << "Wall-clock time:              "
             << time_total.count() << " s\n";
 
-  // 2) resource cost C_res
   const double C_res =
       beta  * static_cast<double>(sum_dofs)
     + gamma * static_cast<double>(n_time_steps)
@@ -488,6 +510,4 @@ Heat::solve()
             << "  → delta*numAsm    = " << delta * num_assemblies << " s\n";
   std::cout << "  - refinements  = " << n_refinements
             << "  → zeta*numRef     = " << zeta * n_refinements << " s\n\n";
-
 }
-
