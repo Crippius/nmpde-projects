@@ -5,9 +5,20 @@
 void
 Heat::declare_parameters(ParameterHandler &prm)
 {
+    prm.enter_subsection("Adaptivity Control");
+  {
+    prm.declare_entry("Enable space adaptivity", "true", Patterns::Bool(), 
+                      "If true, enables adaptive mesh refinement.");
+    prm.declare_entry("Enable time adaptivity", "true", Patterns::Bool(), 
+                      "If true, enables adaptive time stepping.");
+  }
+  prm.leave_subsection();
+
   prm.enter_subsection("Discretization");
   {
     prm.declare_entry("Degree", "1", Patterns::Integer(0), "Polynomial degree of FE");
+    prm.declare_entry("Global refinements", "2", Patterns::Integer(0), 
+                      "Number of global refinements for uniform meshes.");
     prm.declare_entry("Final time", "2.0", Patterns::Double(0.0), "Final time T");
     prm.declare_entry("Initial deltat", "0.05", Patterns::Double(0.0), "Initial time step size");
     prm.declare_entry("Theta", "0.5", Patterns::Double(0.0, 1.0), "Theta for the time-stepping scheme");
@@ -36,9 +47,17 @@ Heat::declare_parameters(ParameterHandler &prm)
 void
 Heat::parse_parameters(ParameterHandler &prm)
 {
+  prm.enter_subsection("Adaptivity Control");
+  {
+    enable_space_adaptivity = prm.get_bool("Enable space adaptivity");
+    enable_time_adaptivity  = prm.get_bool("Enable time adaptivity");
+  }
+  prm.leave_subsection();
+
   prm.enter_subsection("Discretization");
   {
     r      = prm.get_integer("Degree");
+    n_global_refinements = prm.get_integer("Global refinements");
     T      = prm.get_double("Final time");
     deltat = prm.get_double("Initial deltat");
     theta  = prm.get_double("Theta");
@@ -463,7 +482,7 @@ Heat::solve()
   {
     ++n_time_steps;
 
-    if (time_step > 0 && time_step % refinement_interval == 0){
+    if (enable_space_adaptivity && time_step > 0 && time_step % refinement_interval == 0){
       auto tr0 = std::chrono::high_resolution_clock::now();
       refine_grid();
       auto tr1 = std::chrono::high_resolution_clock::now();
@@ -472,7 +491,7 @@ Heat::solve()
       ++num_assemblies;
     }
       
-    if (time_step > 0 && time_step % time_adapt_interval == 0)
+    if (enable_time_adaptivity && time_step > 0 && time_step % time_adapt_interval == 0)
       update_deltat(time, solution);
     
     time += deltat;

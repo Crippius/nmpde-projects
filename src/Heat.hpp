@@ -252,10 +252,13 @@ protected:
   SparsityPattern sparsity_pattern;
 
   // Space Adaptativity Parameters. ///////////////////////////////////////////////////////////
-  const unsigned int n_global_refinements = 1;
+  unsigned int n_global_refinements;
   unsigned int refinement_interval;
   double       refinement_percent;
   double       coarsening_percent;
+  
+  bool enable_space_adaptivity;
+  bool enable_time_adaptivity;
 
   // Time Adaptativity Parameters. ///////////////////////////////////////////////////////////
   unsigned int time_adapt_interval;
