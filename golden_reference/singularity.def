@@ -1,0 +1,92 @@
+Bootstrap: docker
+From: ubuntu:22.04
+
+%files
+    # Copia i tuoi file sorgente DENTRO la cartella /app del container
+    src /app/src
+    CMakeLists_singularity.txt /app/CMakeLists.txt
+
+%post
+    export DEBIAN_FRONTEND=noninteractive
+
+    # 1. INSTALLA DIPENDENZE DI SISTEMA E COMPILATORE
+    apt-get update && apt-get install -y \
+        build-essential gfortran gcc-13 g++-13 git cmake wget \
+        libtbb-dev libeigen3-dev libboost-all-dev
+
+    update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100
+    update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 100
+
+    # 2. INSTALLA OPENMPI
+    export OMPI_VERSION=5.0.3
+    wget https://download.open-mpi.org/release/open-mpi/v5.0/openmpi-${OMPI_VERSION}.tar.bz2
+    tar -xf openmpi-${OMPI_VERSION}.tar.bz2; cd openmpi-${OMPI_VERSION}
+    ./configure --prefix=/opt/mpi; make -j$(nproc) install; cd ..
+    rm -rf openmpi-${OMPI_VERSION}*
+
+    # 3. IMPOSTA L'AMBIENTE PER LA BUILD
+    export PATH="/opt/mpi/bin:$PATH"
+    export LD_LIBRARY_PATH="/opt/mpi/lib:$LD_LIBRARY_PATH"
+
+    # 4. INSTALLA TRILINOS
+    # Questa è una dipendenza di deal.II per l'algebra lineare parallela.
+    # La configurazione abilita solo i pacchetti minimi necessari a deal.II.
+    git clone --depth 1 --branch trilinos-release-14-4-0 https://github.com/trilinos/Trilinos.git /trilinos_source
+    mkdir /trilinos_build; cd /trilinos_build
+    cmake -D CMAKE_INSTALL_PREFIX=/opt/trilinos \
+          -D CMAKE_BUILD_TYPE=Release \
+          -D Trilinos_ENABLE_ALL_OPTIONAL_PACKAGES=OFF \
+          -D Trilinos_ENABLE_CXX11=ON \
+          -D Trilinos_ENABLE_Epetra=ON \
+          -D Trilinos_ENABLE_EpetraExt=ON \
+          -D Trilinos_ENABLE_Ifpack=ON \
+          -D Trilinos_ENABLE_AztecOO=ON \
+          -D Trilinos_ENABLE_Amesos=ON \
+          -D Trilinos_ENABLE_ML=ON \
+          -D TPL_ENABLE_MPI=ON \
+          /trilinos_source
+    make -j$(nproc) install
+    cd /; rm -rf /trilinos_source /trilinos_build
+
+    # 5. INSTALLA DEAL.II CON SUPPORTO A TRILINOS
+    # Ora diciamo a deal.II di usare la versione di Trilinos che abbiamo installato.
+    git clone --depth 1 --branch v9.5.1 https://github.com/dealii/dealii.git /dealii_source
+    mkdir /dealii_build; cd /dealii_build
+    cmake -D CMAKE_INSTALL_PREFIX=/opt/dealii \
+          -D DEAL_II_WITH_MPI=ON \
+          -D DEAL_II_WITH_TRILINOS=ON \
+          -D Trilinos_DIR=/opt/trilinos/lib/cmake/Trilinos \
+          -D DEAL_II_WITH_TBB=ON \
+          -D DEAL_II_WITH_EIGEN=ON \
+          -D CMAKE_BUILD_TYPE=Release \
+          /dealii_source
+    make -j$(nproc) install
+    cd /; rm -rf /dealii_source /dealii_build
+
+    # 6. COMPILA LA TUA APPLICAZIONE
+    mkdir -p /app/build; cd /app/build
+    cmake -DDEAL_II_DIR=/opt/dealii ..
+    make -j$(nproc)
+
+%environment
+    # ===================================================================
+    # AMBIENTE DI ESECUZIONE
+    # Definisce le variabili per quando il container VIENE ESEGUITO.
+    # ===================================================================
+    export PATH="/opt/mpi/bin:$PATH"
+    export LD_LIBRARY_PATH="/opt/mpi/lib:$LD_LIBRARY_PATH"
+    
+    # Aggiungiamo anche i percorsi di deal.II
+    export PATH="/opt/dealii/bin:$PATH"
+    export LD_LIBRARY_PATH="/opt/dealii/lib:$LD_LIBRARY_PATH"
+
+    export DEAL_II_DIR=/opt/dealii
+    
+    # Imposta i compilatori MPI come default per l'ambiente di runtime
+    export CC=mpicc
+    export CXX=mpic++
+
+%runscript
+    echo "Container per simulazioni deal.II MPI."
+    echo "Applicazione compilata in /app/build/lab-06"
+    echo "Eseguire con: mpirun singularity exec <container.sif> /app/build/lab-06"

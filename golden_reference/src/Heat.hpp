@@ -58,43 +58,91 @@ public:
 
   // Function for the forcing term:
   //   f(x,t) = (∑ₖ Aₖ sin(2π νₖ t + φₖ))  *  (∑ᵢ exp(-||x-xᵢ||²/σ_spatial²))
+  // Function for the forcing term (9 sources, relay activation in groups).
   class ForcingTerm : public Function<dim>
   {
   public:
-    ForcingTerm()
+    // Il costruttore accetta il tempo finale della simulazione.
+    explicit ForcingTerm(const double T_final)
       : Function<dim>(),
+        T(T_final),
+        // Parametri temporali
         A{1.0, 0.5, 0.25},
         nu{1.0, 3.0, 5.0},
-        phi{0.0, 0.0, 0.0},
-        sigma_spatial(0.1)
+        phi{0.0, M_PI / 2.0, M_PI}
     {
-      centers = {
-        Point<dim>(0.25,0.25,0.5), Point<dim>(0.25,0.50,0.5), Point<dim>(0.25,0.75,0.5),
-        Point<dim>(0.50,0.25,0.5), Point<dim>(0.50,0.50,0.5), Point<dim>(0.50,0.75,0.5),
-        Point<dim>(0.75,0.25,0.5), Point<dim>(0.75,0.50,0.5), Point<dim>(0.75,0.75,0.5)
-      };
+      // 9 centri, distribuiti in modo asimmetrico nel cubo
+      centers = {// Gruppo 1: Sorgenti acute
+                 Point<dim>(0.1, 0.1, 0.1),
+                 Point<dim>(0.9, 0.1, 0.9),
+                 Point<dim>(0.5, 0.9, 0.5),
+                 // Gruppo 2: Sorgenti medie
+                 Point<dim>(0.2, 0.8, 0.2),
+                 Point<dim>(0.8, 0.2, 0.8),
+                 Point<dim>(0.2, 0.2, 0.8),
+                 // Gruppo 3: Sorgenti diffuse
+                 Point<dim>(0.5, 0.5, 0.5),
+                 Point<dim>(0.1, 0.9, 0.1),
+                 Point<dim>(0.9, 0.9, 0.1)};
+
+      // 9 sigma, 3 per ogni gruppo con dimensioni diverse
+      sigmas = {// Gruppo 1: Sigma molto piccoli (picchi acuti)
+                0.015,
+                0.020,
+                0.018,
+                // Gruppo 2: Sigma medi
+                0.08,
+                0.07,
+                0.09,
+                // Gruppo 3: Sigma grandi (sorgenti diffuse)
+                0.20,
+                0.22,
+                0.18};
     }
 
     virtual double value(const Point<dim> &p,
                          const unsigned int /*component*/ = 0) const override
     {
       const double t = this->get_time();
-      // temporal part
-      double temporal = 0.0;
+
+      // Calcoliamo l'onda temporale di base
+      double temporal_wave = 0.0;
       for (unsigned int k = 0; k < A.size(); ++k)
-        temporal += A[k] * std::sin(2.0*M_PI*nu[k]*t + phi[k]) + A[k];
-      // spatial part
-      double spatial = 0.0;
-      for (const auto &c : centers)
-        spatial += std::exp(- p.distance(c)*p.distance(c)
-                            / (sigma_spatial*sigma_spatial));
-      return temporal * spatial;
+        temporal_wave += A[k] * std::sin(2.0 * M_PI * nu[k] * t + phi[k]) + A[k];
+
+      double spatial_term = 0.0;
+
+      // Attivazione a staffetta in gruppi di 3
+      if (t < T / 3.0)
+        {
+          // Attiva il primo gruppo di 3 sorgenti
+          for (unsigned int i = 0; i < 3; ++i)
+            spatial_term += std::exp(-p.distance_square(centers[i]) /
+                                     (sigmas[i] * sigmas[i]));
+        }
+      else if (t < 2.0 * T / 3.0)
+        {
+          // Attiva il secondo gruppo di 3 sorgenti
+          for (unsigned int i = 3; i < 6; ++i)
+            spatial_term += std::exp(-p.distance_square(centers[i]) /
+                                     (sigmas[i] * sigmas[i]));
+        }
+      else
+        {
+          // Attiva il terzo gruppo di 3 sorgenti
+          for (unsigned int i = 6; i < 9; ++i)
+            spatial_term += std::exp(-p.distance_square(centers[i]) /
+                                     (sigmas[i] * sigmas[i]));
+        }
+
+      return temporal_wave * spatial_term;
     }
 
   private:
+    const double            T; // Tempo finale per la logica a staffetta
     std::vector<double>     A, nu, phi;
     std::vector<Point<dim>> centers;
-    double                  sigma_spatial;
+    std::vector<double>     sigmas;
   };
 
   // Function for the initial condition.
@@ -118,6 +166,7 @@ public:
     : mpi_size(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD))
     , mpi_rank(Utilities::MPI::this_mpi_process(MPI_COMM_WORLD))
     , pcout(std::cout, mpi_rank == 0)
+    , forcing_term(T_)
     , T(T_)
     , r(r_)
     , deltat(deltat_)

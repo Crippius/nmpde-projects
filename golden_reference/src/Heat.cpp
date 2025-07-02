@@ -6,7 +6,7 @@ Heat::create_mesh()
   std::cout << "Creating cube mesh" << std::endl;
   
   GridGenerator::hyper_cube(mesh, 0.0, 1.0);
-  mesh.refine_global(6);
+  mesh.refine_global(10);
 
   std::cout << "  Number of elements = " << mesh.n_active_cells()
         << std::endl;
@@ -299,32 +299,4 @@ Heat::solve()
   output(9999); // Usiamo un numero di time_step alto per identificarlo
   pcout << "  -> Saved reference solution to output_9999.vtu" << std::endl;
   pcout << "===============================================" << std::endl;
-  
-  const auto wall_end = std::chrono::high_resolution_clock::now();
-  wall_clock_time = wall_end - wall_start;
-
-  // --- print performance summary (no refinements) ---
-  std::cout << "\n=== Performance Summary ===\n";
-  std::cout << "Wall-clock time:           " 
-            << wall_clock_time.count() << " s\n";
-
-  // compute resource cost C_res (only DoFs, time-steps, assemblies)
-  const double C_res =
-      beta  * static_cast<double>(sum_dofs)
-    + gamma * static_cast<double>(num_time_steps)
-    + delta * static_cast<double>(num_assemblies);
-
-  std::cout << "Resource cost (C_res):     "
-            << C_res << " s-equivalent\n";
-  std::cout << "  - sum DoFs   = " << sum_dofs
-            << "   -> beta*sumDoFs   = " 
-            << beta  * sum_dofs     << " s\n";
-  std::cout << "  - time steps  = " << num_time_steps
-            << "   -> gamma*numSteps  = " 
-            << gamma * num_time_steps  << " s\n";
-  std::cout << "  - assemblies  = " << num_assemblies
-            << "   -> delta*numAsm    = " 
-            << delta * num_assemblies  << " s\n";
-
-  std::cout.flush();
 }
