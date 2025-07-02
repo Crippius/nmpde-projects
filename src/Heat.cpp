@@ -423,22 +423,24 @@ void Heat::update_deltat(double time, Vector<double> &prev_solution) {
   bool step_accepted = false;
   double trial_deltat = deltat;
   double local_time = time;
+  double prev_deltat = 0;
+
   prev_solution = solution;
 
   while (!step_accepted)
   {
     double time_error = estimate_time_error(local_time, prev_solution, trial_deltat);
-    if (time_error < time_error_lower_bound && trial_deltat * 2.0 <= max_deltat)
+    if (time_error < time_error_lower_bound && trial_deltat * 2.0 <= max_deltat && trial_deltat * 2.0 != prev_deltat)
     {
+      prev_deltat = trial_deltat;
       trial_deltat *= 2.0;
       std::cout << "[Time adaptivity] Time error " << time_error << " < lower bound. Increasing deltat to " << trial_deltat << std::endl;
-      continue;
     }
-    else if (time_error > time_error_upper_bound && trial_deltat / 2.0 >= min_deltat)
+    else if (time_error > time_error_upper_bound && trial_deltat / 2.0 >= min_deltat && trial_deltat / 2.0 != prev_deltat)
     {
+      prev_deltat = trial_deltat;
       trial_deltat /= 2.0;
       std::cout << "[Time adaptivity] Time error " << time_error << " > upper bound. Decreasing deltat to " << trial_deltat << std::endl;
-      continue;
     }
     else
     {
@@ -481,7 +483,6 @@ Heat::solve()
   while (time < T)
   {
     ++n_time_steps;
-
     if (enable_space_adaptivity && time_step > 0 && time_step % refinement_interval == 0){
       auto tr0 = std::chrono::high_resolution_clock::now();
       refine_grid();
