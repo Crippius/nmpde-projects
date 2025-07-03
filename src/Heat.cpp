@@ -534,9 +534,8 @@ Heat::solve()
     t1 = std::chrono::high_resolution_clock::now();
     time_solve_step += t1 - t0;
 
-    output(time_step);
   }
-
+  output(9999);
   auto t_total_end = std::chrono::high_resolution_clock::now();
   time_total = t_total_end - t_total_start;
 
