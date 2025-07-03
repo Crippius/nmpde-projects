@@ -394,7 +394,8 @@ double Heat::estimate_time_error(const double &time, const Vector<double> &prev_
 {
   Vector<double> backup_solution = solution;
   double backup_deltat = deltat;
-
+  double eps = 1e-8;
+  
   deltat = trial_deltat;
   solution = prev_solution;
   assemble_rhs(time + trial_deltat);
@@ -411,7 +412,7 @@ double Heat::estimate_time_error(const double &time, const Vector<double> &prev_
   Vector<double> sol_two_half_steps = solution;
 
   sol_big_step -= sol_two_half_steps;
-  double error = sol_big_step.l2_norm();
+  double error = sol_big_step.l2_norm()/(sol_two_half_steps.l2_norm() + eps);
 
   solution = backup_solution;
   deltat = backup_deltat;

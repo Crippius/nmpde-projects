@@ -14,7 +14,7 @@ end
 # -----------------------------------------------
 subsection Discretization
   set Degree              = 1
-  set Global refinements  = 2     # Usato solo se l'adattività spaziale è disabilitata
+  set Global refinements  = 2    
   set Final time          = 2.0
   set Initial deltat      = 0.05
   set Theta               = 0.5
@@ -36,8 +36,8 @@ end
 # -----------------------------------------------
 subsection Time Adaptivity
   set Adaptivity interval  = 1
-  set Error lower bound    = 0.0005
-  set Error upper bound    = 0.002
+  set Error lower bound    = 0.05
+  set Error upper bound    = 0.2
   set Min deltat           = 1e-4
   set Max deltat           = 0.2
 end
