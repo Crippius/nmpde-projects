@@ -1,7 +1,7 @@
-# File di configurazione per la simulazione del calore
+# Configuration file for Heat PDE Solver
 
 # -----------------------------------------------
-# Controlli per l'adattività
+# Adaptivity Control booleans
 # -----------------------------------------------
 subsection Adaptivity Control
   set Enable space adaptivity = true
@@ -10,11 +10,11 @@ end
 
 
 # -----------------------------------------------
-# Parametri di discretizzazione
+# Discretization Params
 # -----------------------------------------------
 subsection Discretization
   set Degree              = 1
-  set Global refinements  = 2    
+  set Global refinements  = 3  
   set Final time          = 2.0
   set Initial deltat      = 0.05
   set Theta               = 0.5
@@ -22,17 +22,17 @@ end
 
 
 # -----------------------------------------------
-# Parametri per l'adattatività spaziale (mesh)
+# Space Adaptivity Params
 # -----------------------------------------------
 subsection Space Adaptivity
   set Refinement interval = 5
-  set Refinement fraction = 0.1
-  set Coarsening fraction = 0.9
+  set Refinement fraction = 0.05
+  set Coarsening fraction = 0.5
 end
 
 
 # -----------------------------------------------
-# Parametri per l'adattatività temporale (deltat)
+# Time Adaptivity Params
 # -----------------------------------------------
 subsection Time Adaptivity
   set Adaptivity interval  = 1
