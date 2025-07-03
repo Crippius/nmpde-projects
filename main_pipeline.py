@@ -17,7 +17,7 @@ EXECUTABLE_PATH = Path("./cpp_program/build/main").resolve()
 ERROR_SCRIPT_PATH = Path("./compute_error.py").resolve()
 
 # Percorso della soluzione di riferimento ("golden")
-GOLDEN_REFERENCE_PATH = Path("./golden_reference/ref_7_0.0005/solution_9999.pvtu").resolve()
+GOLDEN_REFERENCE_PATH = Path("./golden_reference/ref_8_0.0005/solution_9999.pvtu").resolve()
 
 # Cartella principale dove verranno salvati tutti i risultati
 RUNS_DIR = Path("./test_runs").resolve()
@@ -101,6 +101,39 @@ def parse_metrics_from_log(log_path):
         metrics = {key: None for key in patterns}
     return metrics
 
+def parse_all_parameters_from_prm(prm_path):
+    """
+    Legge un file .prm e estrae tutti i parametri definiti,
+    creando un dizionario.
+    """
+    params = {}
+    current_subsection = "General"
+    param_pattern = re.compile(r"^\s*set\s+(.+?)\s*=\s*(.+?)\s*$")
+
+    try:
+        with open(prm_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+
+                if "subsection" in line:
+                    current_subsection = line.split(" ")[-1].strip()
+                    continue
+
+                match = param_pattern.match(line)
+                if match:
+                    param_name = match.group(1).strip().replace(' ', '_')
+                    param_value = match.group(2).strip()
+                    # Crea una chiave univoca per evitare collisioni tra sezioni
+                    full_key = f"param_{current_subsection}_{param_name}"
+                    params[full_key] = param_value
+    except IOError:
+        print(f"  -> ERRORE: Impossibile leggere il file dei parametri {prm_path}")
+        return {}
+        
+    return params
+
 def run_error_computation(run_dir, reference_path):
     """
     Esegue lo script di calcolo dell'errore, che scrive il risultato su un file temporaneo.
@@ -159,9 +192,17 @@ def write_results_to_csv(filepath, data_list):
     if not data_list:
         print("Nessun dato da scrivere nel file CSV.")
         return
-    headers = list(data_list[0].keys())
+    
+    # Raccoglie tutti gli header possibili da tutti i dizionari per non perdere dati
+    all_headers = set()
+    for d in data_list:
+        all_headers.update(d.keys())
+    
+    # Mantiene un ordine consistente
+    ordered_headers = sorted(list(all_headers))
+
     with open(filepath, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=headers)
+        writer = csv.DictWriter(f, fieldnames=ordered_headers)
         writer.writeheader()
         writer.writerows(data_list)
     print(f"\n✅ Risultati finali salvati in: {filepath}")
@@ -202,30 +243,29 @@ def main():
                 f_log.write(result.stdout)
             print("  -> Simulazione completata con successo.")
 
+            # Estrazione dei dati
+            all_params = parse_all_parameters_from_prm(params_path)
             perf_metrics = parse_metrics_from_log(log_path)
             l2_error = run_error_computation(current_run_dir, GOLDEN_REFERENCE_PATH)
             
-            # --- NUOVO BLOCCO: CALCOLO DELLE METRICHE DERIVATE ---
+            # Calcolo delle metriche derivate
             derived_metrics = {}
             t = perf_metrics.get('total_time')
             n = perf_metrics.get('n_dofs')
             h = perf_metrics.get('h_min')
             e = l2_error
 
-            # Calcola i rapporti solo se i dati necessari sono disponibili e validi
             derived_metrics['r_d_fixed'] = (e / n) if e is not None and n is not None and n > 0 else None
             derived_metrics['r_t_to_sol'] = (t / e) if t is not None and e is not None and e > 0 else None
             derived_metrics['r_eff_res'] = (h / e) if h is not None and e is not None and e > 0 else None
-            # --- FINE NUOVO BLOCCO ---
-
-            flat_params = {f"param_{k.replace(' ', '_')}": v for section in config.values() if isinstance(section, dict) for k, v in section.items()}
             
+            # Unione di tutti i dati in un unico record
             current_run_results = {
                 "run_name": run_name,
-                **flat_params,
+                **all_params,
                 **perf_metrics,
                 "l2_error": l2_error,
-                **derived_metrics # Aggiunge le nuove metriche al dizionario
+                **derived_metrics
             }
             all_results_data.append(current_run_results)
 
