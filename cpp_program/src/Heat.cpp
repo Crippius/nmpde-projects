@@ -2,6 +2,7 @@
 #include <chrono>
 
 
+// ParameterHandler declaration.
 void
 Heat::declare_parameters(ParameterHandler &prm)
 {
@@ -44,6 +45,7 @@ Heat::declare_parameters(ParameterHandler &prm)
   prm.leave_subsection();
 }
 
+// Actual implementation of the parse_parameters method.
 void
 Heat::parse_parameters(ParameterHandler &prm)
 {
@@ -85,12 +87,12 @@ Heat::parse_parameters(ParameterHandler &prm)
 
 
 Heat::Heat(ParameterHandler &prm)
-  : forcing_term(0.0) // Inizializzazione temporanea, T verrà sovrascritto
+  : forcing_term(0.0) // Temp declaration, will be updated later
 {
-  // Leggi i parametri dal file e popola le variabili membro
+  // Read the parameters from the ParameterHandler
   parse_parameters(prm);
   
-  // Ora che T è noto, aggiorna il membro T della classe ForcingTerm
+  // Update forcing term with the final time
   const_cast<double&>(forcing_term.T) = T;
 }
 
@@ -98,6 +100,9 @@ Heat::Heat(ParameterHandler &prm)
 void
 Heat::create_mesh()
 {
+  // Create the cube mesh.
+  // This method generates a hypercube mesh in the unit cube [0,1]^dim.
+
   std::cout << "Creating cube mesh" << std::endl;
   
   GridGenerator::hyper_cube(mesh, 0.0, 1.0);
@@ -334,18 +339,20 @@ Heat::refine_grid()
             << mesh.n_active_cells() << std::endl;
   
   Vector<float> estimated_error_per_cell(mesh.n_active_cells());
-
+  // ESTIMATE
   KellyErrorEstimator<dim>::estimate(dof_handler,
                                     QGauss<dim - 1>(r + 1),
                                     {}, 
                                     solution,
                                     estimated_error_per_cell);
   
+  // MARK
   GridRefinement::refine_and_coarsen_fixed_number(mesh,
                                                  estimated_error_per_cell,
                                                  refinement_percent,
                                                  coarsening_percent);
   
+  // REFINE
   SolutionTransfer<dim> solution_transfer(dof_handler);
   mesh.prepare_coarsening_and_refinement();
   solution_transfer.prepare_for_coarsening_and_refinement(solution);
@@ -357,6 +364,9 @@ Heat::refine_grid()
   dof_handler.distribute_dofs(*fe);
   std::cout << "  Number of DoFs after refinement = " << dof_handler.n_dofs() << std::endl;
   
+    
+  // Reinitialize the DoF handler and constraints
+
   setup_constraints();
   
   DynamicSparsityPattern dsp(dof_handler.n_dofs());
@@ -396,12 +406,14 @@ double Heat::estimate_time_error(const double &time, const Vector<double> &prev_
   double backup_deltat = deltat;
   double eps = 1e-8;
   
+  // Big Step Solution
   deltat = trial_deltat;
   solution = prev_solution;
   assemble_rhs(time + trial_deltat);
   solve_time_step();
   Vector<double> sol_big_step = solution;
 
+  // Two Half Steps Solution
   deltat = trial_deltat / 2.0;
   solution = prev_solution;
   assemble_rhs(time + deltat);
@@ -411,6 +423,7 @@ double Heat::estimate_time_error(const double &time, const Vector<double> &prev_
   solve_time_step();
   Vector<double> sol_two_half_steps = solution;
 
+  // Compute the error estimate
   sol_big_step -= sol_two_half_steps;
   double error = sol_big_step.l2_norm()/(sol_two_half_steps.l2_norm() + eps);
 
@@ -433,18 +446,21 @@ void Heat::update_deltat(double time, Vector<double> &prev_solution) {
     double time_error = estimate_time_error(local_time, prev_solution, trial_deltat);
     if (time_error < time_error_lower_bound && trial_deltat * 2.0 <= max_deltat && trial_deltat * 2.0 != prev_deltat)
     {
+      // Increase the time step
       prev_deltat = trial_deltat;
       trial_deltat *= 2.0;
       std::cout << "[Time adaptivity] Time error " << time_error << " < lower bound. Increasing deltat to " << trial_deltat << std::endl;
     }
     else if (time_error > time_error_upper_bound && trial_deltat / 2.0 >= min_deltat && trial_deltat / 2.0 != prev_deltat)
     {
+      // Decrease the time step
       prev_deltat = trial_deltat;
       trial_deltat /= 2.0;
       std::cout << "[Time adaptivity] Time error " << time_error << " > upper bound. Decreasing deltat to " << trial_deltat << std::endl;
     }
     else
     {
+      // Accept the time step
       deltat = trial_deltat;
       step_accepted = true;
       std::cout << "[Time adaptivity] Time error " << time_error << " -> reasonable. Not changing anything" << std::endl;
@@ -455,10 +471,10 @@ void Heat::update_deltat(double time, Vector<double> &prev_solution) {
 void
 Heat::solve()
 {
-  // --- start wall-clock timer ---
+  // Start wall-clock timer
   auto t_total_start = std::chrono::high_resolution_clock::now();
 
-  // --- reset resource counters ---
+  // Reset performance metrics
   n_time_steps   = 0;
   unsigned int num_assemblies = 0;
   unsigned int n_refinements  = 0;
@@ -484,7 +500,7 @@ Heat::solve()
   while (time < T)
   {
     ++n_time_steps;
-    if (enable_space_adaptivity && time_step > 0 && time_step % refinement_interval == 0){
+    if (enable_space_adaptivity && time_step > 0 && time_step % refinement_interval == 0){ // Space adaptivity
       auto tr0 = std::chrono::high_resolution_clock::now();
       refine_grid();
       auto tr1 = std::chrono::high_resolution_clock::now();
@@ -493,7 +509,7 @@ Heat::solve()
       ++num_assemblies;
     }
       
-    if (enable_time_adaptivity && time_step > 0 && time_step % time_adapt_interval == 0)
+    if (enable_time_adaptivity && time_step > 0 && time_step % time_adapt_interval == 0) // Time adaptivity
       update_deltat(time, solution);
     
     time += deltat;
@@ -520,23 +536,23 @@ Heat::solve()
   auto t_total_end = std::chrono::high_resolution_clock::now();
   time_total = t_total_end - t_total_start;
 
-  // --- Calcola e stampa le nuove metriche ---
+  // Compute and print performance metrics
   compute_and_print_metrics();
 }
 
 void
 Heat::compute_and_print_metrics() const
 {
-  // 1. RACCOLTA DEI DATI DI PERFORMANCE
+
   const double total_time = time_total.count();
   const double n_dofs = dof_handler.n_dofs();
   const double h_min = GridTools::minimal_cell_diameter(mesh);
 
-  // 2. CALCOLO DELLE METRICHE
+  // Metric calculations
   const double r_res       = h_min / n_dofs;
   const double r_t_per_dof = total_time / n_dofs;
 
-  // 3. STAMPA DEI RISULTATI
+  // Print performance metrics
   std::cout << "\n===============================================" << std::endl;
   std::cout << "=== Performance Metrics Summary ===" << std::endl;
   std::cout << "-----------------------------------------------" << std::endl;

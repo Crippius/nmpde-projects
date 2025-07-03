@@ -1,7 +1,9 @@
 #ifndef HEAT_HPP
 #define HEAT_HPP
 
+// Import necessary headers from deal.II library
 #include <deal.II/base/quadrature_lib.h>
+#include <deal.II/base/parameter_handler.h>
 
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/dofs/dof_tools.h>
@@ -29,14 +31,12 @@
 #include <deal.II/numerics/vector_tools_interpolate.h>
 #include <deal.II/numerics/solution_transfer.h>
 
+// Include necessary standard libraries
 #include <fstream>
 #include <iostream>
-
 #include <vector>
 #include <cmath>
 #include <chrono>
-
-#include <deal.II/base/parameter_handler.h>
 
 using namespace dealii;
 
@@ -63,74 +63,72 @@ public:
   class ForcingTerm : public Function<dim>
   {
   public:
-    // Il costruttore accetta il tempo finale della simulazione.
+    // Constructor
     explicit ForcingTerm(const double T_final)
       : Function<dim>(),
         T(T_final),
-        // Parametri temporali
+        // Heat sources parameters
         A{1.0, 0.5, 0.25},
         nu{1.0, 3.0, 5.0},
         phi{0.0, M_PI / 2.0, M_PI}
     {
-      // 9 centri, distribuiti in modo asimmetrico nel cubo
-      centers = {// Gruppo 1: Sorgenti acute
+
+      centers = {// Group 1: Short peaks
                  Point<dim>(0.1, 0.1, 0.1),
                  Point<dim>(0.9, 0.1, 0.9),
                  Point<dim>(0.5, 0.9, 0.5),
-                 // Gruppo 2: Sorgenti medie
+                 // Groupo 2: Medium peaks
                  Point<dim>(0.2, 0.8, 0.2),
                  Point<dim>(0.8, 0.2, 0.8),
                  Point<dim>(0.2, 0.2, 0.8),
-                 // Gruppo 3: Sorgenti diffuse
+                 // Group 3: Wide peaks
                  Point<dim>(0.5, 0.5, 0.5),
                  Point<dim>(0.1, 0.9, 0.1),
                  Point<dim>(0.9, 0.9, 0.1)};
 
-      // 9 sigma, 3 per ogni gruppo con dimensioni diverse
-      sigmas = {// Gruppo 1: Sigma molto piccoli (picchi acuti)
+      sigmas = {// Group 1: Short peaks
                 0.015,
                 0.020,
                 0.018,
-                // Gruppo 2: Sigma medi
+                // Group 2: Medium peaks
                 0.08,
                 0.07,
                 0.09,
-                // Gruppo 3: Sigma grandi (sorgenti diffuse)
+                // Group 3: Wide peaks
                 0.20,
                 0.22,
                 0.18};
     }
 
+    // Forcing term: f(x,t) = (∑ₖ Aₖ sin(2π νₖ t + φₖ)) * (∑ᵢ exp(-||x-xᵢ||²/σ_spatial²))
     virtual double value(const Point<dim> &p,
                          const unsigned int /*component*/ = 0) const override
     {
       const double t = this->get_time();
 
-      // Calcoliamo l'onda temporale di base
+      
       double temporal_wave = 0.0;
       for (unsigned int k = 0; k < A.size(); ++k)
         temporal_wave += A[k] * std::sin(2.0 * M_PI * nu[k] * t + phi[k]) + A[k];
 
       double spatial_term = 0.0;
 
-      // Attivazione a staffetta in gruppi di 3
+      // Activate sources in groups based on time t
+      // 3 sources per group, total 9 sources
       if (t < T / 3.0)
         {
-          // Attiva il primo gruppo di 3 sorgenti
           for (unsigned int i = 0; i < 3; ++i)
             spatial_term += std::exp(-p.distance_square(centers[i]) /
                                      (sigmas[i] * sigmas[i]));
         }
       else if (t < 2.0 * T / 3.0)
         {
-          // Attiva il secondo gruppo di 3 sorgenti
           for (unsigned int i = 3; i < 6; ++i)
             spatial_term += std::exp(-p.distance_square(centers[i]) /
                                      (sigmas[i] * sigmas[i]));
         }
       else
         {
-          // Attiva il terzo gruppo di 3 sorgenti
           for (unsigned int i = 6; i < 9; ++i)
             spatial_term += std::exp(-p.distance_square(centers[i]) /
                                      (sigmas[i] * sigmas[i]));
@@ -140,7 +138,7 @@ public:
     }
 
   public: 
-    const double            T; // Tempo finale per la logica a staffetta
+    const double            T; 
     std::vector<double>     A, nu, phi;
     std::vector<Point<dim>> centers;
     std::vector<double>     sigmas;
@@ -158,12 +156,13 @@ public:
     }
   };
 
-  // Funzione statica per dichiarare i parametri
+  // ParameterHandler declaration.
   static void
   declare_parameters(ParameterHandler &prm);
 
-  // Costruttore modificato per accettare ParameterHandler
+  // Constructor for the Heat class, initializes the problem with parameters.
   Heat(ParameterHandler &prm);
+
 
   // Initialization.
   void
@@ -267,7 +266,7 @@ protected:
   double       min_deltat;
   double       max_deltat;
 
-  // PERFORMANCE TRACKING
+  // Performance Tracking. /////////////////////////////////////////////////////
   std::chrono::duration<double> time_total{0.0};
   std::chrono::duration<double> time_refine{0.0};
   std::chrono::duration<double> time_assemble_matrices{0.0};
