@@ -171,7 +171,7 @@ public:
     , r(r_)
     , deltat(deltat_)
     , theta(theta_)
-    , mesh(MPI_COMM_WORLD)
+    , mesh(MPI_COMM_WORLD, parallel::distributed::Triangulation<dim>::MeshSmoothing::none, parallel::distributed::Triangulation<dim>::Settings())
   {}
 
   // Initialization.

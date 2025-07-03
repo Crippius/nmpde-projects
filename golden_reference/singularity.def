@@ -16,7 +16,7 @@ From: ubuntu:22.04
 
     apt-get update && apt-get install -y \
         build-essential gcc g++ gfortran git cmake wget \
-        libtbb-dev libeigen3-dev libboost-all-dev software-properties-common libssl-dev sudo libblas-dev liblapack-dev
+        libtbb-dev libeigen3-dev libboost-all-dev software-properties-common libssl-dev sudo libblas-dev liblapack-dev openmpi-bin libopenmpi-dev
 
 
     #update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100
@@ -24,11 +24,11 @@ From: ubuntu:22.04
     #update-alternatives --install /usr/bin/gfortran gfortran /usr/bin/gfortran-13 100
 
     # 2. INSTALLA OPENMPI
-    export OMPI_VERSION=5.0.3
-    wget https://download.open-mpi.org/release/open-mpi/v5.0/openmpi-${OMPI_VERSION}.tar.bz2
-    tar -xf openmpi-${OMPI_VERSION}.tar.bz2; cd openmpi-${OMPI_VERSION}
-    ./configure --prefix=/opt/mpi; make -j$(nproc) install; cd ..
-    rm -rf openmpi-${OMPI_VERSION}*
+    #export OMPI_VERSION=5.0.3
+    #wget https://download.open-mpi.org/release/open-mpi/v5.0/openmpi-${OMPI_VERSION}.tar.bz2
+    #tar -xf openmpi-${OMPI_VERSION}.tar.bz2; cd openmpi-${OMPI_VERSION}
+    #./configure --prefix=/opt/mpi; make -j$(nproc) install; cd ..
+    #rm -rf openmpi-${OMPI_VERSION}*
 
     wget https://github.com/Kitware/CMake/releases/download/v3.25.0/cmake-3.25.0.tar.gz
     tar -xf cmake-3.25.0.tar.gz
