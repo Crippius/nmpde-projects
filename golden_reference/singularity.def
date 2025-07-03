@@ -10,12 +10,18 @@ From: ubuntu:22.04
     export DEBIAN_FRONTEND=noninteractive
 
     # 1. INSTALLA DIPENDENZE DI SISTEMA E COMPILATORE
-    apt-get update && apt-get install -y \
-        build-essential gfortran gcc-13 g++-13 git cmake wget \
-        libtbb-dev libeigen3-dev libboost-all-dev
+    #apt-get update
+    #apt-get install -y software-properties-common
+    #add-apt-repository ppa:ubuntu-toolchain-r/test
 
-    update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100
-    update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 100
+    apt-get update && apt-get install -y \
+        build-essential gcc g++ gfortran git cmake wget \
+        libtbb-dev libeigen3-dev libboost-all-dev software-properties-common libssl-dev sudo libblas-dev liblapack-dev
+
+
+    #update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100
+    #update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 100
+    #update-alternatives --install /usr/bin/gfortran gfortran /usr/bin/gfortran-13 100
 
     # 2. INSTALLA OPENMPI
     export OMPI_VERSION=5.0.3
@@ -24,9 +30,20 @@ From: ubuntu:22.04
     ./configure --prefix=/opt/mpi; make -j$(nproc) install; cd ..
     rm -rf openmpi-${OMPI_VERSION}*
 
+    wget https://github.com/Kitware/CMake/releases/download/v3.25.0/cmake-3.25.0.tar.gz
+    tar -xf cmake-3.25.0.tar.gz
+    mkdir cmake-3.25.0-build && cd cmake-3.25.0-build
+    ../cmake-3.25.0/configure --prefix=/usr/local
+    make -j$(nproc)
+    sudo make install
+
     # 3. IMPOSTA L'AMBIENTE PER LA BUILD
     export PATH="/opt/mpi/bin:$PATH"
     export LD_LIBRARY_PATH="/opt/mpi/lib:$LD_LIBRARY_PATH"
+
+    export CC=mpicc
+    export CXX=mpic++
+    export FC=mpif90
 
     # 4. INSTALLA TRILINOS
     # Questa è una dipendenza di deal.II per l'algebra lineare parallela.
@@ -35,6 +52,7 @@ From: ubuntu:22.04
     mkdir /trilinos_build; cd /trilinos_build
     cmake -D CMAKE_INSTALL_PREFIX=/opt/trilinos \
           -D CMAKE_BUILD_TYPE=Release \
+          -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
           -D Trilinos_ENABLE_ALL_OPTIONAL_PACKAGES=OFF \
           -D Trilinos_ENABLE_CXX11=ON \
           -D Trilinos_ENABLE_Epetra=ON \
