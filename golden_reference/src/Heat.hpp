@@ -4,7 +4,8 @@
 #include <deal.II/base/conditional_ostream.h>
 #include <deal.II/base/quadrature_lib.h>
 
-#include <deal.II/distributed/fully_distributed_tria.h>
+
+#include <deal.II/distributed/tria.h>
 
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/dofs/dof_tools.h>
@@ -160,6 +161,7 @@ public:
   // Constructor. We provide the final time, time step Delta t and theta method
   // parameter as constructor arguments.
   Heat(const unsigned int &r_,
+       const unsigned int &refinement_level_,
        const double       &T_,
        const double       &deltat_,
        const double       &theta_)
@@ -169,9 +171,10 @@ public:
     , forcing_term(T_)
     , T(T_)
     , r(r_)
+    , refinement_level(refinement_level_)
     , deltat(deltat_)
     , theta(theta_)
-    , mesh(MPI_COMM_WORLD, parallel::distributed::Triangulation<dim>::MeshSmoothing::none, parallel::distributed::Triangulation<dim>::Settings())
+    , mesh(MPI_COMM_WORLD)
   {}
 
   // Initialization.
@@ -232,6 +235,8 @@ protected:
 
   // Polynomial degree.
   const unsigned int r;
+
+  const unsigned int refinement_level;
 
   // Time step.
   const double deltat;

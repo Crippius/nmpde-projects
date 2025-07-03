@@ -1,0 +1,43 @@
+# File di configurazione per la simulazione del calore
+
+# -----------------------------------------------
+# Controlli per l'adattività
+# -----------------------------------------------
+subsection Adaptivity Control
+  set Enable space adaptivity = true
+  set Enable time adaptivity = true
+end
+
+
+# -----------------------------------------------
+# Parametri di discretizzazione
+# -----------------------------------------------
+subsection Discretization
+  set Degree              = 1
+  set Global refinements  = 2    
+  set Final time          = 2.0
+  set Initial deltat      = 0.05
+  set Theta               = 0.5
+end
+
+
+# -----------------------------------------------
+# Parametri per l'adattatività spaziale (mesh)
+# -----------------------------------------------
+subsection Space Adaptivity
+  set Refinement interval = 5
+  set Refinement fraction = 0.1
+  set Coarsening fraction = 0.9
+end
+
+
+# -----------------------------------------------
+# Parametri per l'adattatività temporale (deltat)
+# -----------------------------------------------
+subsection Time Adaptivity
+  set Adaptivity interval  = 1
+  set Error lower bound    = 0.05
+  set Error upper bound    = 0.2
+  set Min deltat           = 1e-4
+  set Max deltat           = 0.2
+end

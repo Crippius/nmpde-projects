@@ -1,2 +1,5 @@
 build/*
 *.sif
+*.vtu
+*.pvtu
+*.Identifier

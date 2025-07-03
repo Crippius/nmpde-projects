@@ -6,7 +6,7 @@ Heat::create_mesh()
   std::cout << "Creating cube mesh" << std::endl;
   
   GridGenerator::hyper_cube(mesh, 0.0, 1.0);
-  mesh.refine_global(10);
+  mesh.refine_global(refinement_level);
 
   std::cout << "  Number of elements = " << mesh.n_active_cells()
         << std::endl;

@@ -37,4 +37,6 @@ build/*
 
 mesh/*
 
+test_runs/*
+
 .vscode/

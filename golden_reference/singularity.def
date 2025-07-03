@@ -16,7 +16,7 @@ From: ubuntu:22.04
 
     apt-get update && apt-get install -y \
         build-essential gcc g++ gfortran git cmake wget \
-        libtbb-dev libeigen3-dev libboost-all-dev software-properties-common libssl-dev sudo libblas-dev liblapack-dev openmpi-bin libopenmpi-dev
+        libtbb-dev libeigen3-dev libboost-all-dev software-properties-common libssl-dev sudo libblas-dev liblapack-dev openmpi-bin libopenmpi-dev libp4est-dev libscotch-dev libmetis-dev
 
 
     #update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100
@@ -76,6 +76,7 @@ From: ubuntu:22.04
           -D Trilinos_DIR=/opt/trilinos/lib/cmake/Trilinos \
           -D DEAL_II_WITH_TBB=ON \
           -D DEAL_II_WITH_EIGEN=ON \
+          -D DEAL_II_WITH_P4EST=ON \
           -D CMAKE_BUILD_TYPE=Release \
           /dealii_source
     make -j$(nproc) install
@@ -106,5 +107,5 @@ From: ubuntu:22.04
 
 %runscript
     echo "Container per simulazioni deal.II MPI."
-    echo "Applicazione compilata in /app/build/lab-06"
+    echo "Applicazione compilata in /app/build/lab-06 <nglobalrefinments> <deltat> "
     echo "Eseguire con: mpirun singularity exec <container.sif> /app/build/lab-06"
