@@ -17,7 +17,7 @@ EXECUTABLE_PATH = Path("./cpp_program/build/main").resolve()
 ERROR_SCRIPT_PATH = Path("./compute_error.py").resolve()
 
 # Percorso della soluzione di riferimento ("golden")
-GOLDEN_REFERENCE_PATH = Path("./golden_reference/reference_solution.pvtu").resolve()
+GOLDEN_REFERENCE_PATH = Path("./golden_reference/ref_7_0.0005/solution_9999.pvtu").resolve()
 
 # Cartella principale dove verranno salvati tutti i risultati
 RUNS_DIR = Path("./test_runs").resolve()
@@ -118,31 +118,25 @@ def run_error_computation(run_dir, reference_path):
         str(ERROR_SCRIPT_PATH),
         "--reference", str(reference_path),
         "--test-solution", str(test_solution_path),
-        "--output-file", str(result_file_path) # Passa il percorso del file di output
+        "--output-file", str(result_file_path)
     ]
     
     print("  -> Calcolo dell'errore L2 (tramite file temporaneo)...")
     try:
-        # Lancia il processo e aspetta che finisca, senza catturare output in tempo reale
         result = subprocess.run(
             command,
-            capture_output=True, # Catturiamo comunque per il debug in caso di errore
+            capture_output=True,
             text=True,
             check=True,
             timeout=180
         )
-
-        # Se il processo è terminato correttamente, leggi il risultato dal file
         if not result_file_path.exists():
             print("  -> ERRORE: Il file di risultato non è stato creato dallo script di errore.")
             return None
-            
         with open(result_file_path, 'r') as f:
             l2_error = float(f.read().strip())
-            
         print(f"  -> Errore L2 calcolato: {l2_error}")
         return l2_error
-
     except subprocess.TimeoutExpired:
         print("  -> ERRORE: Il calcolo dell'errore ha superato il tempo limite.")
         return None
@@ -157,7 +151,6 @@ def run_error_computation(run_dir, reference_path):
         print(f"  -> ERRORE imprevisto durante il calcolo dell'errore: {e}")
         return None
     finally:
-        # Assicurati che il file temporaneo venga cancellato in ogni caso
         if result_file_path.exists():
             os.remove(result_file_path)
 
@@ -166,9 +159,7 @@ def write_results_to_csv(filepath, data_list):
     if not data_list:
         print("Nessun dato da scrivere nel file CSV.")
         return
-    
     headers = list(data_list[0].keys())
-    
     with open(filepath, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=headers)
         writer.writeheader()
@@ -212,17 +203,29 @@ def main():
             print("  -> Simulazione completata con successo.")
 
             perf_metrics = parse_metrics_from_log(log_path)
-            
-            # Chiama la funzione che usa il file temporaneo
             l2_error = run_error_computation(current_run_dir, GOLDEN_REFERENCE_PATH)
             
+            # --- NUOVO BLOCCO: CALCOLO DELLE METRICHE DERIVATE ---
+            derived_metrics = {}
+            t = perf_metrics.get('total_time')
+            n = perf_metrics.get('n_dofs')
+            h = perf_metrics.get('h_min')
+            e = l2_error
+
+            # Calcola i rapporti solo se i dati necessari sono disponibili e validi
+            derived_metrics['r_d_fixed'] = (e / n) if e is not None and n is not None and n > 0 else None
+            derived_metrics['r_t_to_sol'] = (t / e) if t is not None and e is not None and e > 0 else None
+            derived_metrics['r_eff_res'] = (h / e) if h is not None and e is not None and e > 0 else None
+            # --- FINE NUOVO BLOCCO ---
+
             flat_params = {f"param_{k.replace(' ', '_')}": v for section in config.values() if isinstance(section, dict) for k, v in section.items()}
             
             current_run_results = {
                 "run_name": run_name,
                 **flat_params,
                 **perf_metrics,
-                "l2_error": l2_error
+                "l2_error": l2_error,
+                **derived_metrics # Aggiunge le nuove metriche al dizionario
             }
             all_results_data.append(current_run_results)
 
@@ -234,7 +237,6 @@ def main():
     write_results_to_csv(RESULTS_CSV_PATH, all_results_data)
 
 if __name__ == "__main__":
-    # Controlla che i file essenziali esistano
     if not all([p.exists() for p in [EXECUTABLE_PATH, ERROR_SCRIPT_PATH, GOLDEN_REFERENCE_PATH, BASE_PARAMETERS_FILE]]):
         print("ERRORE: Uno o più file/percorsi essenziali non sono stati trovati.")
         print(f"Controlla che esistano:\n- Eseguibile: {EXECUTABLE_PATH}\n- Script Errore: {ERROR_SCRIPT_PATH}\n- Riferimento: {GOLDEN_REFERENCE_PATH}\n- Parametri Base: {BASE_PARAMETERS_FILE}")
