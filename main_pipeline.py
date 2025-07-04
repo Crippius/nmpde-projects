@@ -15,8 +15,8 @@ EXECUTABLE_PATH = Path("./cpp_program/build/main").resolve()
 # Path to the error computation script
 ERROR_SCRIPT_PATH = Path("./compute_error.py").resolve()
 
-# Path to the reference ("golden") solution
-GOLDEN_REFERENCE_PATH = Path("./golden_reference/ref_8_0.0005/solution_9999.pvtu").resolve()
+# Percorso della soluzione di riferimento ("golden")
+GOLDEN_REFERENCE_PATH = Path("./golden_reference/ref_7_0.0005/solution_9999.pvtu").resolve()
 
 # Main directory where all results will be saved
 RUNS_DIR = Path("./test_runs").resolve()
@@ -58,20 +58,35 @@ def modify_parameter_file(base_params_path, output_path, changes):
 
     modified_lines = []
     current_subsection = None
+
     for line in lines:
-        if "subsection" in line:
-            current_subsection = line.split(" ")[-1].strip()
-        if "end" in line and current_subsection:
+        stripped_line = line.strip()
+
+        # Controlla i cambi di stato (inizio o fine di una sottosezione)
+        if stripped_line.lower().startswith("subsection"):
+            current_subsection = stripped_line.split(" ", 1)[-1].strip()
+            modified_lines.append(line)
+            continue
+        
+        if stripped_line.lower() == "end":
             current_subsection = None
+            modified_lines.append(line)
+            continue
+
+        # Se siamo in una sottosezione di interesse, prova a modificare i parametri
         new_line = line
-        if current_subsection in changes:
+        if current_subsection and current_subsection in changes:
             for param, value in changes[current_subsection].items():
-                pattern = re.compile(f"(set\\s+{re.escape(param)}\\s*=\\s*).+")
-                if pattern.match(line.strip()):
-                    new_line = pattern.sub(f"\\g<1>{value}", line.strip()) + "\n"
-                    break
+                # Cerca una riga che inizi con "set", seguita dal nome del parametro
+                pattern = re.compile(f"^\\s*set\\s+{re.escape(param)}\\s*=", re.IGNORECASE)
+                if pattern.search(stripped_line):
+                    # Ricostruisce la riga per preservare l'indentazione e formattare correttamente
+                    indentation = re.match(r"(\s*)", line).group(1)
+                    new_line = f"{indentation}set {param} = {value}\n"
+                    break  # Parametro trovato e sostituito, passa alla riga successiva
+        
         modified_lines.append(new_line)
-    
+
     with open(output_path, "w") as f_out:
         f_out.writelines(modified_lines)
     print(f"  -> Parameter file created at: {output_path}")
@@ -114,15 +129,16 @@ def parse_all_parameters_from_prm(prm_path):
                 if not line or line.startswith('#'):
                     continue
 
-                if "subsection" in line:
-                    current_subsection = line.split(" ")[-1].strip()
+                if line.lower().startswith("subsection"):
+                    current_subsection = line.split(" ", 1)[-1].strip()
                     continue
 
                 match = param_pattern.match(line)
                 if match:
                     param_name = match.group(1).strip().replace(' ', '_')
                     param_value = match.group(2).strip()
-                    full_key = f"param_{current_subsection}_{param_name}"
+                    # Crea una chiave univoca per evitare collisioni tra sezioni
+                    full_key = f"param_{current_subsection.replace(' ', '_')}_{param_name}"
                     params[full_key] = param_value
     except IOError:
         print(f"  -> ERROR: Unable to read parameter file {prm_path}")
@@ -158,7 +174,7 @@ def run_error_computation(run_dir, reference_path):
             capture_output=True,
             text=True,
             check=True,
-            timeout=180
+            timeout=300 # Aumentato a 5 minuti per sicurezza
         )
         if not result_file_path.exists():
             print("  -> ERROR: The result file was not created by the error script.")
